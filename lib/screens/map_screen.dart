@@ -5,7 +5,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_place/google_place.dart';
 import '../models/alarm.dart';
 import '../services/location_service.dart';
-import 'active_alarm_screen.dart';
 
 // Location types enum
 enum LocationType {
@@ -826,34 +825,11 @@ class _MapScreenState extends State<MapScreen> {
       isActive: startNow,
     );
 
-    if (startNow) {
-      // Navigate to Active Alarm Screen
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ActiveAlarmScreen(alarm: alarm),
-        ),
-      );
-    } else {
-      // Just return the alarm to be saved
-      Navigator.pop(context, alarm);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text('Alarm "${alarm.name}" saved for later'),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.green[600],
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
+    // Return the alarm with metadata to main_screen
+    Navigator.pop(context, {
+      'alarm': alarm,
+      'startNow': startNow,
+    });
   }
 
   @override

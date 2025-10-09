@@ -40,19 +40,27 @@ flutter pub get
 
 3. Configure Google Maps API:
 
-   **For Android:**
-   - Add your API key to `android/app/src/main/AndroidManifest.xml`:
-   ```xml
-   <meta-data
-       android:name="com.google.android.geo.API_KEY"
-       android:value="YOUR_API_KEY_HERE"/>
-   ```
+   **Get your API key:**
+   - Go to [Google Cloud Console](https://console.cloud.google.com/google/maps-apis)
+   - Create or select a project
+   - Enable these APIs:
+     - Maps SDK for Android
+     - Maps SDK for iOS
+     - Places API
+   - Create credentials (API Key)
+   - Copy your API key
 
-   **For iOS:**
-   - Add your API key to `ios/Runner/AppDelegate.swift`:
-   ```swift
-   GMSServices.provideAPIKey("YOUR_API_KEY_HERE")
-   ```
+   **Set up environment variables:**
+   - Copy the example environment file:
+     ```bash
+     cp .env.example .env
+     ```
+   - Open `.env` and replace `your_google_maps_api_key_here` with your actual API key:
+     ```
+     GOOGLE_MAPS_API_KEY=your_actual_api_key_here
+     ```
+
+   **Note:** The `.env` file is gitignored to keep your API key secure. Never commit your actual API key to version control.
 
 4. Run the app:
 ```bash

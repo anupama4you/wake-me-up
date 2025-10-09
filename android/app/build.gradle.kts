@@ -28,6 +28,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Load API keys from .env file
+        val properties = org.jetbrains.kotlin.konan.properties.Properties()
+        val envFile = rootProject.file("../../.env")
+        if (envFile.exists()) {
+            envFile.inputStream().use { properties.load(it) }
+        }
+
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = properties.getProperty("GOOGLE_MAPS_API_KEY", "")
     }
 
     buildTypes {
