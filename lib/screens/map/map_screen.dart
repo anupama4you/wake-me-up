@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_place/google_place.dart';
+
 import '../../models/alarm.dart';
 import '../../services/location_service.dart';
 import 'location_type.dart';
@@ -51,6 +51,10 @@ class _MapScreenState extends State<MapScreen> {
   // ---- Category filter ----
   LocationType _selectedCategory = LocationType.all;
   LatLng? _searchCenterLocation;
+
+  // ---- Search session & caching ----
+  String? _sessionToken; // Autocomplete session token
+  final Map<String, DetailsResult> _detailsCache = {}; // Lazy Details cache
 
   @override
   void initState() {
@@ -122,7 +126,9 @@ class _MapScreenState extends State<MapScreen> {
         _updateMapMarkers();
       });
 
-      if (_mapController != null && widget.existingAlarm == null && !_hasValidLocation) {
+      if (_mapController != null &&
+          widget.existingAlarm == null &&
+          !_hasValidLocation) {
         _mapController!.animateCamera(
           CameraUpdate.newLatLngZoom(_selectedLocation, 15),
         );
@@ -142,30 +148,30 @@ class _MapScreenState extends State<MapScreen> {
 
       final latLng = LatLng(loc.lat!, loc.lng!);
 
-      // Skip if this is the selected location
+      // Skip if this is (roughly) the selected location
       if (_hasValidLocation &&
-          (latLng.latitude - _selectedLocation.latitude).abs() < 0.0001 &&
-          (latLng.longitude - _selectedLocation.longitude).abs() < 0.0001) {
+          latLngRoughEqual(latLng, _selectedLocation, epsilon: 1e-4)) {
         continue;
       }
 
       final placeTypes = location.types ?? [];
-
-      BitmapDescriptor markerIcon = BitmapDescriptor.defaultMarkerWithHue(
-        _getMarkerHue(placeTypes),
-      );
+      final hue = getMarkerHueForTypes(placeTypes);
+      final markerIcon =
+          BitmapDescriptor.defaultMarkerWithHue(hue);
 
       markers.add(
         Marker(
-          markerId: MarkerId(location.placeId ?? 'place_${markers.length}'),
+          markerId:
+              MarkerId(location.placeId ?? 'place_${markers.length}'),
           position: latLng,
           icon: markerIcon,
-          alpha: 0.75, // Make nearby markers slightly transparent
+          alpha: 0.75, // slightly transparent
           infoWindow: InfoWindow(
             title: location.name ?? 'Location',
-            snippet: '${calculateDistance(_searchCenterLocation ?? _selectedLocation, latLng).toStringAsFixed(0)}m away',
+            snippet:
+                '${calculateDistance(_searchCenterLocation ?? _selectedLocation, latLng).toStringAsFixed(0)}m away',
           ),
-          onTap: () => _onMarkerTapped(location),
+          onTap: () => _onLocationTapped(location),
         ),
       );
     }
@@ -176,7 +182,8 @@ class _MapScreenState extends State<MapScreen> {
         Marker(
           markerId: const MarkerId('selected_location'),
           position: _selectedLocation,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueGreen),
           infoWindow: InfoWindow(
             title: _nameController.text,
             snippet: 'Selected alarm location',
@@ -191,39 +198,19 @@ class _MapScreenState extends State<MapScreen> {
         Marker(
           markerId: const MarkerId('current_location'),
           position: _currentLocation!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueAzure),
           alpha: 0.8,
           infoWindow: const InfoWindow(title: 'Your Location'),
         ),
       );
     }
 
-    // Don't show circles on the location selection screen
-    // Circles will be shown in the alarm settings screen
-    final circles = <Circle>{};
-
+    // Circles not shown on this selection screen (only on alarm settings)
     setState(() {
       _markers = markers;
-      _circles = circles;
+      _circles = const <Circle>{};
     });
-  }
-
-  double _getMarkerHue(List<String> types) {
-    if (types.contains('bus_station')) return BitmapDescriptor.hueOrange;
-    if (types.contains('train_station')) return BitmapDescriptor.hueGreen;
-    if (types.contains('light_rail_station')) return BitmapDescriptor.hueViolet;
-    if (types.contains('subway_station')) return BitmapDescriptor.hueRose;
-    if (types.contains('transit_station')) return BitmapDescriptor.hueCyan;
-    if (types.contains('airport')) return BitmapDescriptor.hueAzure;
-    if (types.contains('university')) return BitmapDescriptor.hueYellow;
-    if (types.contains('hospital')) return BitmapDescriptor.hueMagenta;
-    if (types.contains('shopping_mall')) return BitmapDescriptor.hueOrange;
-    if (types.contains('park')) return BitmapDescriptor.hueGreen;
-    return BitmapDescriptor.hueRed;
-  }
-
-  void _onMarkerTapped(DetailsResult location) {
-    _onLocationTapped(location);
   }
 
   void _goToCurrentLocation() async {
@@ -262,7 +249,7 @@ class _MapScreenState extends State<MapScreen> {
     _mapController?.animateCamera(CameraUpdate.zoomOut());
   }
 
-  // ------- Fetch nearby locations with category filter -------
+  // ------- Nearby locations (FAST → lazy Details on tap) -------
   Future<void> _fetchNearbyLocations(LatLng location) async {
     setState(() {
       _isLoadingLocations = true;
@@ -272,63 +259,85 @@ class _MapScreenState extends State<MapScreen> {
     try {
       final types = _selectedCategory == LocationType.all
           ? [
-        'bus_station',
-        'train_station',
-        'transit_station',
-        'subway_station',
-        'light_rail_station',
-      ]
+              'bus_station',
+              'train_station',
+              'transit_station',
+              'subway_station',
+              'light_rail_station',
+            ]
           : [_selectedCategory.googleType];
 
-      final allResults = <DetailsResult>[];
-      final seenPlaceIds = <String>{};
+      final seen = <String>{};
+      final all = <DetailsResult>[];
 
-      for (var type in types) {
-        final result = await _googlePlace.search.getNearBySearch(
+      for (final type in types) {
+        final res = await _googlePlace.search.getNearBySearch(
           Location(lat: location.latitude, lng: location.longitude),
           1500,
           type: type,
         );
 
-        if (result?.results != null) {
-          for (var place in result!.results!.take(10)) {
-            if (place.placeId != null && !seenPlaceIds.contains(place.placeId)) {
-              seenPlaceIds.add(place.placeId!);
-              final detailsResp = await _googlePlace.details.get(place.placeId!);
-              if (detailsResp?.result != null) {
-                allResults.add(detailsResp!.result!);
-              }
-            }
-          }
+        for (final p in (res?.results ?? []).take(15)) {
+          final pid = p.placeId;
+          if (pid == null || seen.contains(pid)) continue;
+          seen.add(pid);
+
+          // Build a lightweight DetailsResult so UI can render immediately
+          all.add(
+            DetailsResult(
+              placeId: pid,
+              name: p.name,
+              vicinity: p.vicinity,
+              geometry: Geometry(
+                location: Location(
+                  lat: p.geometry?.location?.lat,
+                  lng: p.geometry?.location?.lng,
+                ),
+              ),
+              types: p.types,
+              rating: p.rating,
+              userRatingsTotal: p.userRatingsTotal,
+              openingHours: p.openingHours,
+              photos: p.photos,
+            ),
+          );
         }
       }
 
-      // Sort by distance
-      allResults.sort((a, b) {
-        final distA = calculateDistance(
-          location,
-          LatLng(a.geometry!.location!.lat!, a.geometry!.location!.lng!),
-        );
-        final distB = calculateDistance(
-          location,
-          LatLng(b.geometry!.location!.lat!, b.geometry!.location!.lng!),
-        );
-        return distA.compareTo(distB);
+      // Sort by distance from center
+      all.sort((a, b) {
+        final la = LatLng(
+            a.geometry!.location!.lat!, a.geometry!.location!.lng!);
+        final lb = LatLng(
+            b.geometry!.location!.lat!, b.geometry!.location!.lng!);
+        final da = calculateDistance(location, la);
+        final db = calculateDistance(location, lb);
+        return da.compareTo(db);
       });
 
       if (!mounted) return;
 
       setState(() {
-        _nearbyLocations = allResults;
+        _nearbyLocations = all;
         _showingLocations = true;
         _showPredictions = true;
         _isLoadingLocations = false;
         _updateMapMarkers();
       });
 
-      // Adjust camera to show all markers
-      if (allResults.isNotEmpty) {
-        _fitMarkersInView(location, allResults);
+      // Fit the closest few + center, add padding for the bottom bar
+      if (all.isNotEmpty) {
+        final pts = <LatLng>[
+          location,
+          ...all.take(6).map((e) => LatLng(
+                e.geometry!.location!.lat!,
+                e.geometry!.location!.lng!,
+              )),
+        ];
+        final bounds = pts.toBounds();
+        _mapController?.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds, 100),
+        );
       }
     } catch (e) {
       debugPrint('Error fetching locations: $e');
@@ -341,37 +350,8 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  void _fitMarkersInView(LatLng center, List<DetailsResult> results) {
-    if (results.isEmpty || _mapController == null) return;
 
-    double minLat = center.latitude;
-    double maxLat = center.latitude;
-    double minLng = center.longitude;
-    double maxLng = center.longitude;
-
-    // Consider closest 8 locations for bounds
-    for (var result in results.take(8)) {
-      final loc = result.geometry?.location;
-      if (loc != null) {
-        minLat = min(minLat, loc.lat!);
-        maxLat = max(maxLat, loc.lat!);
-        minLng = min(minLng, loc.lng!);
-        maxLng = max(maxLng, loc.lng!);
-      }
-    }
-
-    final bounds = LatLngBounds(
-      southwest: LatLng(minLat, minLng),
-      northeast: LatLng(maxLat, maxLng),
-    );
-
-    // Add more padding to account for bottom sheet
-    _mapController?.animateCamera(
-      CameraUpdate.newLatLngBounds(bounds, 100),
-    );
-  }
-
-  // ------- Places Autocomplete -------
+  // ------- Autocomplete (debounced + session token + AU bias) -------
   void _onSearchChanged(String input) {
     _debounceTimer?.cancel();
 
@@ -387,13 +367,19 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
+    // Start a session when user starts typing
+    _sessionToken ??= UniqueKey().toString();
+
     _debounceTimer = Timer(_debounce, () async {
       final result = await _googlePlace.autocomplete.get(
         input,
+        sessionToken: _sessionToken,
         location: _currentLocation != null
-            ? LatLon(_currentLocation!.latitude, _currentLocation!.longitude)
+            ? LatLon(
+                _currentLocation!.latitude, _currentLocation!.longitude)
             : null,
         radius: _currentLocation != null ? 30000 : null,
+        components: [Component('country', 'au')], // Bias to AU
       );
 
       if (!mounted) return;
@@ -408,14 +394,14 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  // Handle map tap for pin drop
+  // ------- Map tap for pin drop (reverse geocode) -------
   Future<void> _onMapTapped(LatLng position) async {
     setState(() {
       _isLoadingPlaceDetails = true;
     });
 
     try {
-      // Reverse geocode to get place details
+      // Try to find a nearby place for reverse geocoding
       final result = await _googlePlace.search.getNearBySearch(
         Location(lat: position.latitude, lng: position.longitude),
         50, // Very small radius to get nearest place
@@ -423,7 +409,7 @@ class _MapScreenState extends State<MapScreen> {
 
       String locationName = 'Pinned Location';
 
-      // Try to get a meaningful name from reverse geocode
+      // Try to get a meaningful name from nearby search
       if (result?.results != null && result!.results!.isNotEmpty) {
         final nearestPlace = result.results!.first;
         if (nearestPlace.name != null) {
@@ -441,18 +427,14 @@ class _MapScreenState extends State<MapScreen> {
         _showPredictions = false;
         _showingLocations = false;
         _pinModeActive = false; // Exit pin mode after dropping
-        _updateMapMarkers();
         _isLoadingPlaceDetails = false;
+        _updateMapMarkers();
       });
 
       // Animate to dropped pin location
       _mapController?.animateCamera(
         CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: position,
-            zoom: 17,
-            tilt: 0,
-          ),
+          CameraPosition(target: position, zoom: 17, tilt: 0),
         ),
       );
 
@@ -460,10 +442,10 @@ class _MapScreenState extends State<MapScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
-              children: [
-                const Icon(Icons.push_pin, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Pin dropped: $locationName')),
+              children: const [
+                Icon(Icons.push_pin, color: Colors.white),
+                SizedBox(width: 8),
+                Expanded(child: Text('Pin dropped')),
               ],
             ),
             backgroundColor: Colors.blue[600],
@@ -489,36 +471,48 @@ class _MapScreenState extends State<MapScreen> {
         _showPredictions = false;
         _showingLocations = false;
         _pinModeActive = false;
-        _updateMapMarkers();
         _isLoadingPlaceDetails = false;
+        _updateMapMarkers();
       });
 
       _mapController?.animateCamera(
         CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: position,
-            zoom: 17,
-            tilt: 0,
-          ),
+          CameraPosition(target: position, zoom: 17, tilt: 0),
         ),
       );
     }
   }
 
-  // Handle location selection from list or marker
+  // ------- Location selection from list or marker (lazy Details) -------
   Future<void> _onLocationTapped(DetailsResult location) async {
     FocusScope.of(context).unfocus();
 
-    final loc = location.geometry?.location;
+    final pid = location.placeId;
+    DetailsResult? full = pid != null ? _detailsCache[pid] : null;
+
+    if (pid != null && full == null) {
+      try {
+        final det = await _googlePlace.details.get(pid);
+        full = det?.result ?? location;
+        _detailsCache[pid] = full;
+      } catch (_) {
+        full = location;
+      }
+    } else {
+      full ??= location;
+    }
+
+    final loc = full.geometry?.location;
     if (loc == null) return;
 
     final newLatLng = LatLng(loc.lat!, loc.lng!);
-    final locationName = location.name ?? 'Location';
+    final name = full.name ?? 'Location';
+    final addr = full.formattedAddress ?? full.vicinity ?? name;
 
     setState(() {
       _selectedLocation = newLatLng;
-      _addressController.text = locationName; // Set the name in search bar
-      _nameController.text = locationName;
+      _addressController.text = addr; // Show nice address/name
+      _nameController.text = name;
       _hasValidLocation = true;
       _showPredictions = false;
       _showingLocations = false;
@@ -528,34 +522,32 @@ class _MapScreenState extends State<MapScreen> {
     // Smooth camera animation to selected location
     _mapController?.animateCamera(
       CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: newLatLng,
-          zoom: 17,
-          tilt: 0,
-        ),
+        CameraPosition(target: newLatLng, zoom: 17, tilt: 0),
       ),
     );
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.white),
-            const SizedBox(width: 8),
-            Expanded(child: Text('Selected: $locationName')),
-          ],
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(child: Text('Selected: $name')),
+            ],
+          ),
+          backgroundColor: Colors.green[600],
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
-        backgroundColor: Colors.green[600],
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
-      ),
-    );
+      );
+    }
   }
 
-  // Handle general location selection from predictions
+  // ------- Prediction tapped: details + show Nearby; end session -------
   Future<void> _onPredictionTapped(AutocompletePrediction p) async {
     FocusScope.of(context).unfocus();
 
@@ -565,13 +557,16 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _showPredictions = false;
       _isLoadingPlaceDetails = true;
-      _addressController.text = p.structuredFormatting?.mainText ?? p.description ?? '';
+      _addressController.text =
+          p.structuredFormatting?.mainText ?? p.description ?? '';
     });
 
     try {
-      final detailsResp = await _googlePlace.details.get(placeId);
+      final detailsResp =
+          await _googlePlace.details.get(placeId, sessionToken: _sessionToken);
       final details = detailsResp?.result;
       final loc = details?.geometry?.location;
+      _sessionToken = null; // end billing/ranking session
 
       if (loc == null) {
         if (!mounted) return;
@@ -583,24 +578,18 @@ class _MapScreenState extends State<MapScreen> {
 
       final newLatLng = LatLng(loc.lat!, loc.lng!);
 
-      // Update search text with full address
+      // Update search text with full address if available
       if (mounted) {
         setState(() {
-          _addressController.text = details?.formattedAddress ??
-                                    details?.name ??
-                                    p.description ??
-                                    '';
+          _addressController.text =
+              details?.formattedAddress ?? details?.name ?? p.description ?? '';
         });
       }
 
       // Move camera with smooth animation
       _mapController?.animateCamera(
         CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: newLatLng,
-            zoom: 15,
-            tilt: 0,
-          ),
+          CameraPosition(target: newLatLng, zoom: 15, tilt: 0),
         ),
       );
 
@@ -664,7 +653,8 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Set Location', style: TextStyle(color: Colors.white)),
+        title:
+            const Text('Set Location', style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.blue[600],
         iconTheme: const IconThemeData(color: Colors.white),
       ),
@@ -693,9 +683,7 @@ class _MapScreenState extends State<MapScreen> {
                   GoogleMap(
                     key: _mapKey,
                     onMapCreated: (controller) {
-                      if (_mapController == null) {
-                        _mapController = controller;
-                      }
+                      _mapController ??= controller;
                     },
                     initialCameraPosition: CameraPosition(
                       target: _selectedLocation,
@@ -721,6 +709,11 @@ class _MapScreenState extends State<MapScreen> {
                     myLocationButtonEnabled: false,
                     zoomControlsEnabled: false,
                     mapToolbarEnabled: false,
+                    compassEnabled: true,
+                    buildingsEnabled: true,
+                    tiltGesturesEnabled: true,
+                    rotateGesturesEnabled: true,
+                    trafficEnabled: false,
                   ),
 
                   // Search box and pin button
@@ -735,7 +728,8 @@ class _MapScreenState extends State<MapScreen> {
                             controller: _addressController,
                             onChanged: _onSearchChanged,
                             hasValidLocation: _hasValidLocation,
-                            isLoading: _isLoadingPlaceDetails || _isLoadingLocations,
+                            isLoading:
+                                _isLoadingPlaceDetails || _isLoadingLocations,
                             onClear: () {
                               _addressController.clear();
                               setState(() {
@@ -746,6 +740,7 @@ class _MapScreenState extends State<MapScreen> {
                                 _searchCenterLocation = null;
                                 _hasValidLocation = false;
                                 _pinModeActive = false;
+                                _sessionToken = null;
                                 _updateMapMarkers();
                               });
                             },
@@ -755,7 +750,9 @@ class _MapScreenState extends State<MapScreen> {
                         // Pin mode toggle button
                         Container(
                           decoration: BoxDecoration(
-                            color: _pinModeActive ? Colors.blue[600] : Colors.white,
+                            color: _pinModeActive
+                                ? Colors.blue[600]
+                                : Colors.white,
                             borderRadius: BorderRadius.circular(28),
                             boxShadow: [
                               BoxShadow(
@@ -767,11 +764,17 @@ class _MapScreenState extends State<MapScreen> {
                           ),
                           child: IconButton(
                             icon: Icon(
-                              _pinModeActive ? Icons.push_pin : Icons.push_pin_outlined,
+                              _pinModeActive
+                                  ? Icons.push_pin
+                                  : Icons.push_pin_outlined,
                               size: 24,
                             ),
-                            color: _pinModeActive ? Colors.white : Colors.grey[700],
-                            tooltip: _pinModeActive ? 'Cancel pin mode' : 'Drop a pin',
+                            color: _pinModeActive
+                                ? Colors.white
+                                : Colors.grey[700],
+                            tooltip: _pinModeActive
+                                ? 'Cancel pin mode'
+                                : 'Drop a pin',
                             onPressed: () {
                               setState(() {
                                 _pinModeActive = !_pinModeActive;
@@ -830,22 +833,32 @@ class _MapScreenState extends State<MapScreen> {
                   ),
 
                   // Quick action button - bottom center
-                  if (_currentLocation != null && !_showingLocations && !_hasValidLocation)
+                  if (_currentLocation != null &&
+                      !_showingLocations &&
+                      !_hasValidLocation)
                     Positioned(
                       bottom: 24,
                       left: 0,
                       right: 0,
                       child: Center(
                         child: ElevatedButton.icon(
-                          onPressed: () {
-                            _fetchNearbyLocations(_currentLocation!);
-                            _mapController?.animateCamera(
-                              CameraUpdate.newLatLngZoom(_currentLocation!, 14),
-                            );
+                          onPressed: () async {
+                            // Get the center of the visible map area
+                            if (_mapController != null) {
+                              final visibleRegion = await _mapController!.getVisibleRegion();
+                              final center = LatLng(
+                                (visibleRegion.northeast.latitude + visibleRegion.southwest.latitude) / 2,
+                                (visibleRegion.northeast.longitude + visibleRegion.southwest.longitude) / 2,
+                              );
+                              _fetchNearbyLocations(center);
+                            } else {
+                              // Fallback to current location if map controller not ready
+                              _fetchNearbyLocations(_currentLocation!);
+                            }
                           },
-                          icon: const Icon(Icons.near_me, size: 20),
+                          icon: const Icon(Icons.search, size: 20),
                           label: const Text(
-                            'Find Nearby Places',
+                            'Search This Area',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
@@ -859,7 +872,8 @@ class _MapScreenState extends State<MapScreen> {
                               vertical: 14,
                             ),
                             elevation: 6,
-                            shadowColor: Colors.black.withValues(alpha: 0.3),
+                            shadowColor:
+                                Colors.black.withValues(alpha: 0.3),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(28),
                             ),
@@ -901,7 +915,8 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                          Icon(Icons.info_outline,
+                              color: Colors.blue[700], size: 20),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
@@ -926,11 +941,13 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.check_circle, color: Colors.green[700], size: 20),
+                          Icon(Icons.check_circle,
+                              color: Colors.green[700], size: 20),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   _nameController.text.isEmpty
@@ -946,7 +963,8 @@ class _MapScreenState extends State<MapScreen> {
                                 ),
                                 if (_addressController.text.isNotEmpty)
                                   Padding(
-                                    padding: const EdgeInsets.only(top: 2),
+                                    padding:
+                                        const EdgeInsets.only(top: 2),
                                     child: Text(
                                       _addressController.text,
                                       style: TextStyle(
@@ -968,7 +986,8 @@ class _MapScreenState extends State<MapScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: _hasValidLocation ? _goToAlarmSettings : null,
+                      onPressed:
+                          _hasValidLocation ? _goToAlarmSettings : null,
                       icon: const Icon(Icons.settings, size: 20),
                       label: const Text(
                         'Continue to Alarm Settings',
@@ -980,7 +999,8 @@ class _MapScreenState extends State<MapScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.blue[600],
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 16),
                         elevation: 2,
                         disabledBackgroundColor: Colors.grey[300],
                         disabledForegroundColor: Colors.grey[500],

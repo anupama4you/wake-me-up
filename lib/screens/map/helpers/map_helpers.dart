@@ -2,6 +2,53 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+/// Check if two LatLng coordinates are roughly equal within an epsilon
+bool latLngRoughEqual(LatLng a, LatLng b, {double epsilon = 1e-4}) {
+  return (a.latitude - b.latitude).abs() < epsilon &&
+      (a.longitude - b.longitude).abs() < epsilon;
+}
+
+/// Get marker hue for location types
+double getMarkerHueForTypes(List<String> types) {
+  if (types.contains('bus_station')) return BitmapDescriptor.hueOrange;
+  if (types.contains('train_station')) return BitmapDescriptor.hueGreen;
+  if (types.contains('light_rail_station')) return BitmapDescriptor.hueViolet;
+  if (types.contains('subway_station')) return BitmapDescriptor.hueRose;
+  if (types.contains('transit_station')) return BitmapDescriptor.hueCyan;
+  if (types.contains('airport')) return BitmapDescriptor.hueAzure;
+  if (types.contains('university')) return BitmapDescriptor.hueYellow;
+  if (types.contains('hospital')) return BitmapDescriptor.hueMagenta;
+  if (types.contains('shopping_mall')) return BitmapDescriptor.hueOrange;
+  if (types.contains('park')) return BitmapDescriptor.hueGreen;
+  return BitmapDescriptor.hueRed;
+}
+
+/// Extension to convert a list of LatLng points to LatLngBounds
+extension LatLngListExtension on List<LatLng> {
+  LatLngBounds toBounds() {
+    if (isEmpty) {
+      throw Exception('Cannot create bounds from empty list');
+    }
+
+    double minLat = first.latitude;
+    double maxLat = first.latitude;
+    double minLng = first.longitude;
+    double maxLng = first.longitude;
+
+    for (var point in this) {
+      minLat = min(minLat, point.latitude);
+      maxLat = max(maxLat, point.latitude);
+      minLng = min(minLng, point.longitude);
+      maxLng = max(maxLng, point.longitude);
+    }
+
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+  }
+}
+
 /// Calculate the distance between two coordinates using the Haversine formula
 double calculateDistance(LatLng point1, LatLng point2) {
   const double earthRadius = 6371000; // meters
