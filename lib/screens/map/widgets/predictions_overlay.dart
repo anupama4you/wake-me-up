@@ -34,18 +34,50 @@ class PredictionsOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!showPredictions) return const SizedBox.shrink();
 
+    // Show as bottom sheet for nearby locations, dropdown for predictions
+    if (showingLocations) {
+      return Positioned(
+        bottom: 0,
+        left: 0,
+        right: 0,
+        child: Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.5,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 10,
+                offset: const Offset(0, -2),
+              ),
+            ],
+          ),
+          child: _buildLocationsList(),
+        ),
+      );
+    }
+
+    // Dropdown for search predictions
     return Positioned(
-      top: 130,
+      top: 80,
       left: 16,
       right: 16,
       child: Material(
         elevation: 8,
         borderRadius: BorderRadius.circular(12),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 350),
-          child: showingLocations
-              ? _buildLocationsList()
-              : _buildLocationPredictionsList(),
+        child: Container(
+          constraints: const BoxConstraints(maxHeight: 300),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: _buildLocationPredictionsList(),
         ),
       ),
     );
@@ -55,73 +87,108 @@ class PredictionsOverlay extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Color.lerp(selectedCategory.color, Colors.white, 0.9),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(12),
-              topRight: Radius.circular(12),
+        // Drag handle
+        Center(
+          child: Container(
+            margin: const EdgeInsets.only(top: 12, bottom: 8),
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
+        ),
+        // Header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           child: Row(
             children: [
-              Icon(selectedCategory.icon, color: selectedCategory.color, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Nearby ${selectedCategory.label}',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Color.lerp(selectedCategory.color, Colors.white, 0.85),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  selectedCategory.icon,
                   color: selectedCategory.color,
+                  size: 20,
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Nearby ${selectedCategory.label}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    if (!isLoadingLocations)
+                      Text(
+                        '${nearbyLocations.length} places found',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
               if (isLoadingLocations)
                 SizedBox(
-                  width: 16,
-                  height: 16,
+                  width: 20,
+                  height: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                     valueColor: AlwaysStoppedAnimation(selectedCategory.color),
-                  ),
-                )
-              else
-                Text(
-                  '${nearbyLocations.length} found',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: selectedCategory.color,
                   ),
                 ),
             ],
           ),
         ),
+        const Divider(height: 1),
+        // Content
         if (isLoadingLocations)
           const Padding(
-            padding: EdgeInsets.all(32),
-            child: CircularProgressIndicator(),
+            padding: EdgeInsets.all(40),
+            child: Center(child: CircularProgressIndicator()),
           )
         else if (nearbyLocations.isEmpty)
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(32),
             child: Column(
               children: [
-                Icon(Icons.location_off, size: 48, color: Colors.grey[400]),
-                const SizedBox(height: 8),
+                Icon(Icons.location_off, size: 56, color: Colors.grey[400]),
+                const SizedBox(height: 12),
                 Text(
                   'No ${selectedCategory.label.toLowerCase()} found nearby',
-                  style: TextStyle(color: Colors.grey[600]),
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Try searching a different area',
+                  style: TextStyle(
+                    color: Colors.grey[500],
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
           )
         else
           Flexible(
-            child: ListView.separated(
+            child: ListView.builder(
               padding: EdgeInsets.zero,
               shrinkWrap: true,
               itemCount: nearbyLocations.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
               itemBuilder: (context, i) {
                 final location = nearbyLocations[i];
                 final distance = calculateDistance(
@@ -136,20 +203,58 @@ class PredictionsOverlay extends StatelessWidget {
                 final icon = getIconForTypes(types);
                 final color = getColorForTypes(types);
 
-                return ListTile(
-                  dense: true,
-                  leading: Icon(icon, color: color),
-                  title: Text(
-                    location.name ?? 'Location',
-                    style: const TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                  subtitle: Text(
-                    '${distance.toStringAsFixed(0)}m away${location.vicinity != null ? " • ${location.vicinity}" : ""}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey[400]),
+                return InkWell(
                   onTap: () => onLocationTapped(location),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Color.lerp(color, Colors.white, 0.85),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(icon, color: color, size: 22),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                location.name ?? 'Location',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                '${distance.toStringAsFixed(0)}m away${location.vicinity != null ? " • ${location.vicinity}" : ""}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[600],
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          Icons.arrow_forward_ios,
+                          size: 16,
+                          color: Colors.grey[400],
+                        ),
+                      ],
+                    ),
+                  ),
                 );
               },
             ),
@@ -158,27 +263,74 @@ class PredictionsOverlay extends StatelessWidget {
     );
   }
 
-  Widget _buildLocationPredictionsList() {
-    return ListView.separated(
-      padding: EdgeInsets.zero,
-      shrinkWrap: true,
-      itemCount: predictions.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, i) {
-        final p = predictions[i];
-        return ListTile(
-          dense: true,
-          leading: const Icon(Icons.location_on),
-          title: Text(p.structuredFormatting?.mainText ?? p.description ?? ''),
-          subtitle: Text(
-            p.structuredFormatting?.secondaryText ?? '',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
-          onTap: () => onPredictionTapped(p),
-        );
-      },
-    );
-  }
+   Widget _buildLocationPredictionsList() {
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Flexible(
+        child: ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          shrinkWrap: true,
+          itemCount: predictions.length,
+          itemBuilder: (context, i) {
+            final p = predictions[i];
+            return InkWell(
+              onTap: () => onPredictionTapped(p),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.location_on,
+                      color: Colors.grey[600],
+                      size: 24,
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            p.structuredFormatting?.mainText ?? p.description ?? '',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w500,
+                              fontSize: 15,
+                            ),
+                          ),
+                          if (p.structuredFormatting?.secondaryText != null &&
+                              p.structuredFormatting!.secondaryText!.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                p.structuredFormatting!.secondaryText!,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey[600],
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.arrow_outward,
+                      size: 18,
+                      color: Colors.grey[400],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    ],
+  );
+}
+
 }

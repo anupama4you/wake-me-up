@@ -6,13 +6,13 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_place/google_place.dart';
 import '../../models/alarm.dart';
 import '../../services/location_service.dart';
-import '../active_alarm_screen.dart';
 import 'location_type.dart';
 import 'widgets/category_tabs.dart';
 import 'widgets/search_box.dart';
 import 'widgets/map_controls.dart';
 import 'widgets/predictions_overlay.dart';
 import 'helpers/map_helpers.dart';
+import 'alarm_settings_screen.dart';
 
 class MapScreen extends StatefulWidget {
   final Alarm? existingAlarm;
@@ -27,8 +27,6 @@ class _MapScreenState extends State<MapScreen> {
   final GlobalKey _mapKey = GlobalKey();
   GoogleMapController? _mapController;
 
-  double _radius = 500;
-  String _selectedSound = 'Loud';
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
 
@@ -47,6 +45,8 @@ class _MapScreenState extends State<MapScreen> {
   bool _showingLocations = false;
   bool _hasValidLocation = false;
   bool _isLoadingLocations = false;
+  bool _isLoadingPlaceDetails = false;
+  bool _pinModeActive = false;
 
   // ---- Category filter ----
   LocationType _selectedCategory = LocationType.all;
@@ -68,8 +68,6 @@ class _MapScreenState extends State<MapScreen> {
 
     if (widget.existingAlarm != null) {
       final a = widget.existingAlarm!;
-      _radius = a.radius;
-      _selectedSound = a.soundLevel;
       _nameController.text = a.name;
       _addressController.text = a.address;
       _selectedLocation = LatLng(a.latitude, a.longitude);
@@ -135,8 +133,10 @@ class _MapScreenState extends State<MapScreen> {
   void _updateMapMarkers() {
     final markers = <Marker>{};
 
-    // Add nearby location markers (smaller, lighter)
-    for (var location in _nearbyLocations) {
+    // Only show limited nearby markers to avoid clutter (top 10 closest)
+    final displayLocations = _nearbyLocations.take(10).toList();
+
+    for (var location in displayLocations) {
       final loc = location.geometry?.location;
       if (loc == null) continue;
 
@@ -160,11 +160,10 @@ class _MapScreenState extends State<MapScreen> {
           markerId: MarkerId(location.placeId ?? 'place_${markers.length}'),
           position: latLng,
           icon: markerIcon,
-          alpha: 0.7, // Make nearby markers slightly transparent
+          alpha: 0.75, // Make nearby markers slightly transparent
           infoWindow: InfoWindow(
             title: location.name ?? 'Location',
-            snippet: calculateDistance(_searchCenterLocation ?? _selectedLocation, latLng)
-                .toStringAsFixed(0) + 'm away',
+            snippet: '${calculateDistance(_searchCenterLocation ?? _selectedLocation, latLng).toStringAsFixed(0)}m away',
           ),
           onTap: () => _onMarkerTapped(location),
         ),
@@ -172,70 +171,36 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     // Add selected location marker (prominent, green if valid)
-    markers.add(
-      Marker(
-        markerId: const MarkerId('selected_location'),
-        position: _selectedLocation,
-        draggable: !_hasValidLocation,
-        onDragEnd: (pos) {
-          setState(() {
-            _selectedLocation = pos;
-            _hasValidLocation = false;
-            _nameController.clear();
-            _addressController.clear();
-            _updateMapMarkers();
-          });
-        },
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-          _hasValidLocation ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
+    if (_hasValidLocation) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('selected_location'),
+          position: _selectedLocation,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          infoWindow: InfoWindow(
+            title: _nameController.text,
+            snippet: 'Selected alarm location',
+          ),
         ),
-        infoWindow: InfoWindow(
-          title: _hasValidLocation ? _nameController.text : 'Tap to select location',
-        ),
-      ),
-    );
+      );
+    }
 
-    // Add current location marker (blue)
-    if (_currentLocation != null) {
+    // Add current location marker (blue) - only if not showing locations
+    if (_currentLocation != null && !_showingLocations) {
       markers.add(
         Marker(
           markerId: const MarkerId('current_location'),
           position: _currentLocation!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          alpha: 0.8,
           infoWindow: const InfoWindow(title: 'Your Location'),
         ),
       );
     }
 
-    // Add circle around selected location
-    final circles = <Circle>{
-      Circle(
-        circleId: const CircleId('radius'),
-        center: _selectedLocation,
-        radius: _radius,
-        fillColor: Color.lerp(
-          _hasValidLocation ? Colors.green : Colors.blue,
-          Colors.white,
-          0.8,
-        )!,
-        strokeColor: _hasValidLocation ? Colors.green : Colors.blue,
-        strokeWidth: 2,
-      ),
-    };
-
-    // Add search area circle if searching
-    if (_searchCenterLocation != null && _showingLocations) {
-      circles.add(
-        Circle(
-          circleId: const CircleId('search_area'),
-          center: _searchCenterLocation!,
-          radius: 1500,
-          fillColor: Color.lerp(Colors.orange, Colors.white, 0.95)!,
-          strokeColor: Color.lerp(Colors.orange, Colors.white, 0.7)!,
-          strokeWidth: 1
-        ),
-      );
-    }
+    // Don't show circles on the location selection screen
+    // Circles will be shown in the alarm settings screen
+    final circles = <Circle>{};
 
     setState(() {
       _markers = markers;
@@ -384,7 +349,8 @@ class _MapScreenState extends State<MapScreen> {
     double minLng = center.longitude;
     double maxLng = center.longitude;
 
-    for (var result in results.take(5)) { // Only consider closest 5 for bounds
+    // Consider closest 8 locations for bounds
+    for (var result in results.take(8)) {
       final loc = result.geometry?.location;
       if (loc != null) {
         minLat = min(minLat, loc.lat!);
@@ -399,8 +365,9 @@ class _MapScreenState extends State<MapScreen> {
       northeast: LatLng(maxLat, maxLng),
     );
 
+    // Add more padding to account for bottom sheet
     _mapController?.animateCamera(
-      CameraUpdate.newLatLngBounds(bounds, 80),
+      CameraUpdate.newLatLngBounds(bounds, 100),
     );
   }
 
@@ -441,6 +408,103 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  // Handle map tap for pin drop
+  Future<void> _onMapTapped(LatLng position) async {
+    setState(() {
+      _isLoadingPlaceDetails = true;
+    });
+
+    try {
+      // Reverse geocode to get place details
+      final result = await _googlePlace.search.getNearBySearch(
+        Location(lat: position.latitude, lng: position.longitude),
+        50, // Very small radius to get nearest place
+      );
+
+      String locationName = 'Pinned Location';
+
+      // Try to get a meaningful name from reverse geocode
+      if (result?.results != null && result!.results!.isNotEmpty) {
+        final nearestPlace = result.results!.first;
+        if (nearestPlace.name != null) {
+          locationName = nearestPlace.name!;
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _selectedLocation = position;
+        _addressController.text = locationName;
+        _nameController.text = locationName;
+        _hasValidLocation = true;
+        _showPredictions = false;
+        _showingLocations = false;
+        _pinModeActive = false; // Exit pin mode after dropping
+        _updateMapMarkers();
+        _isLoadingPlaceDetails = false;
+      });
+
+      // Animate to dropped pin location
+      _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: position,
+            zoom: 17,
+            tilt: 0,
+          ),
+        ),
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.push_pin, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Pin dropped: $locationName')),
+              ],
+            ),
+            backgroundColor: Colors.blue[600],
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error reverse geocoding: $e');
+
+      if (!mounted) return;
+
+      // Still set the pin even if reverse geocoding fails
+      setState(() {
+        _selectedLocation = position;
+        _addressController.text = 'Pinned Location';
+        _nameController.text = 'Pinned Location';
+        _hasValidLocation = true;
+        _showPredictions = false;
+        _showingLocations = false;
+        _pinModeActive = false;
+        _updateMapMarkers();
+        _isLoadingPlaceDetails = false;
+      });
+
+      _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: position,
+            zoom: 17,
+            tilt: 0,
+          ),
+        ),
+      );
+    }
+  }
+
   // Handle location selection from list or marker
   Future<void> _onLocationTapped(DetailsResult location) async {
     FocusScope.of(context).unfocus();
@@ -450,11 +514,10 @@ class _MapScreenState extends State<MapScreen> {
 
     final newLatLng = LatLng(loc.lat!, loc.lng!);
     final locationName = location.name ?? 'Location';
-    final formatted = location.formattedAddress ?? location.vicinity ?? '';
 
     setState(() {
       _selectedLocation = newLatLng;
-      _addressController.text = formatted;
+      _addressController.text = locationName; // Set the name in search bar
       _nameController.text = locationName;
       _hasValidLocation = true;
       _showPredictions = false;
@@ -462,8 +525,15 @@ class _MapScreenState extends State<MapScreen> {
       _updateMapMarkers();
     });
 
+    // Smooth camera animation to selected location
     _mapController?.animateCamera(
-      CameraUpdate.newLatLngZoom(newLatLng, 17),
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: newLatLng,
+          zoom: 17,
+          tilt: 0,
+        ),
+      ),
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -477,6 +547,10 @@ class _MapScreenState extends State<MapScreen> {
         ),
         backgroundColor: Colors.green[600],
         duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
       ),
     );
   }
@@ -490,23 +564,55 @@ class _MapScreenState extends State<MapScreen> {
 
     setState(() {
       _showPredictions = false;
+      _isLoadingPlaceDetails = true;
+      _addressController.text = p.structuredFormatting?.mainText ?? p.description ?? '';
     });
 
-    final detailsResp = await _googlePlace.details.get(placeId);
-    final details = detailsResp?.result;
-    final loc = details?.geometry?.location;
+    try {
+      final detailsResp = await _googlePlace.details.get(placeId);
+      final details = detailsResp?.result;
+      final loc = details?.geometry?.location;
 
-    if (loc == null) return;
+      if (loc == null) {
+        if (!mounted) return;
+        setState(() {
+          _isLoadingPlaceDetails = false;
+        });
+        return;
+      }
 
-    final newLatLng = LatLng(loc.lat!, loc.lng!);
+      final newLatLng = LatLng(loc.lat!, loc.lng!);
 
-    // Move camera first
-    _mapController?.animateCamera(
-      CameraUpdate.newLatLngZoom(newLatLng, 14),
-    );
+      // Update search text with full address
+      if (mounted) {
+        setState(() {
+          _addressController.text = details?.formattedAddress ??
+                                    details?.name ??
+                                    p.description ??
+                                    '';
+        });
+      }
 
-    // Don't set this as the alarm location yet, just search around it
-    await _fetchNearbyLocations(newLatLng);
+      // Move camera with smooth animation
+      _mapController?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: newLatLng,
+            zoom: 15,
+            tilt: 0,
+          ),
+        ),
+      );
+
+      // Fetch nearby locations
+      await _fetchNearbyLocations(newLatLng);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingPlaceDetails = false;
+        });
+      }
+    }
   }
 
   // ------- Category filter -------
@@ -520,25 +626,12 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  Widget _buildSoundButton(String sound) {
-    final isSelected = _selectedSound == sound;
-    return ElevatedButton(
-      onPressed: () => setState(() => _selectedSound = sound),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isSelected ? Colors.blue[100] : Colors.grey[100],
-        foregroundColor: isSelected ? Colors.blue[600] : Colors.grey[600],
-        elevation: 0,
-      ),
-      child: Text(sound),
-    );
-  }
-
-  void _saveAlarm(bool startNow) {
+  void _goToAlarmSettings() {
     // Validate location
     if (!_hasValidLocation) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select a valid location from the search results'),
+          content: Text('Please select a valid location first'),
           backgroundColor: Colors.red,
           duration: Duration(seconds: 3),
         ),
@@ -546,55 +639,25 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    // Validate name
-    if (_nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a location name')),
-      );
-      return;
-    }
-
-    final alarm = Alarm(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: _nameController.text.trim(),
-      address: _addressController.text.isEmpty
-          ? 'Custom Location'
-          : _addressController.text.trim(),
-      latitude: _selectedLocation.latitude,
-      longitude: _selectedLocation.longitude,
-      radius: _radius,
-      soundLevel: _selectedSound,
-      isActive: startNow,
-    );
-
-    if (startNow) {
-      // Navigate to Active Alarm Screen
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ActiveAlarmScreen(alarm: alarm),
+    // Navigate to alarm settings screen
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AlarmSettingsScreen(
+          locationName: _nameController.text.trim().isEmpty
+              ? 'Selected Location'
+              : _nameController.text.trim(),
+          address: _addressController.text.trim(),
+          selectedLocation: _selectedLocation,
+          existingAlarm: widget.existingAlarm,
         ),
-      );
-    } else {
-      // Just return the alarm to be saved
-      Navigator.pop(context, alarm);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text('Alarm "${alarm.name}" saved for later'),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.green[600],
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
+      ),
+    ).then((alarm) {
+      // If an alarm was returned, pass it back to the caller
+      if (alarm != null && mounted) {
+        Navigator.pop(context, alarm);
+      }
+    });
   }
 
   @override
@@ -613,15 +676,13 @@ class _MapScreenState extends State<MapScreen> {
             onCategoryChanged: _onCategoryChanged,
           ),
 
-          // Map section
+          // Map section - prominently displayed
           Expanded(
-            flex: 2,
             child: GestureDetector(
               onTap: () {
-                if (_showPredictions) {
+                if (_showPredictions && !_showingLocations) {
                   setState(() {
                     _showPredictions = false;
-                    _showingLocations = false;
                   });
                 }
                 FocusScope.of(context).unfocus();
@@ -643,9 +704,13 @@ class _MapScreenState extends State<MapScreen> {
                     markers: _markers,
                     circles: _circles,
                     onTap: (pos) {
-                      // Don't allow manual tap selection, must select from list
                       FocusScope.of(context).unfocus();
-                      if (_showPredictions) {
+
+                      if (_pinModeActive) {
+                        // Pin mode: set location at tapped position
+                        _onMapTapped(pos);
+                      } else if (_showPredictions) {
+                        // Regular mode: just hide predictions
                         setState(() {
                           _showPredictions = false;
                           _showingLocations = false;
@@ -658,15 +723,84 @@ class _MapScreenState extends State<MapScreen> {
                     mapToolbarEnabled: false,
                   ),
 
-                  // Search box
+                  // Search box and pin button
                   Positioned(
                     top: 16,
                     left: 16,
                     right: 16,
-                    child: SearchBox(
-                      controller: _addressController,
-                      onChanged: _onSearchChanged,
-                      hasValidLocation: _hasValidLocation,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: SearchBox(
+                            controller: _addressController,
+                            onChanged: _onSearchChanged,
+                            hasValidLocation: _hasValidLocation,
+                            isLoading: _isLoadingPlaceDetails || _isLoadingLocations,
+                            onClear: () {
+                              _addressController.clear();
+                              setState(() {
+                                _showPredictions = false;
+                                _showingLocations = false;
+                                _nearbyLocations = [];
+                                _predictions = [];
+                                _searchCenterLocation = null;
+                                _hasValidLocation = false;
+                                _pinModeActive = false;
+                                _updateMapMarkers();
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Pin mode toggle button
+                        Container(
+                          decoration: BoxDecoration(
+                            color: _pinModeActive ? Colors.blue[600] : Colors.white,
+                            borderRadius: BorderRadius.circular(28),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.15),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              )
+                            ],
+                          ),
+                          child: IconButton(
+                            icon: Icon(
+                              _pinModeActive ? Icons.push_pin : Icons.push_pin_outlined,
+                              size: 24,
+                            ),
+                            color: _pinModeActive ? Colors.white : Colors.grey[700],
+                            tooltip: _pinModeActive ? 'Cancel pin mode' : 'Drop a pin',
+                            onPressed: () {
+                              setState(() {
+                                _pinModeActive = !_pinModeActive;
+                                if (_pinModeActive) {
+                                  // Clear predictions when entering pin mode
+                                  _showPredictions = false;
+                                  _showingLocations = false;
+                                  FocusScope.of(context).unfocus();
+                                }
+                              });
+
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    _pinModeActive
+                                        ? 'Tap on the map to drop a pin'
+                                        : 'Pin mode cancelled',
+                                  ),
+                                  duration: const Duration(seconds: 2),
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                   ),
 
@@ -695,28 +829,41 @@ class _MapScreenState extends State<MapScreen> {
                     ),
                   ),
 
-                  // Quick action button - left side
-                  if (_currentLocation != null && !_showingLocations)
+                  // Quick action button - bottom center
+                  if (_currentLocation != null && !_showingLocations && !_hasValidLocation)
                     Positioned(
-                      bottom: 16,
-                      left: 16,
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          _fetchNearbyLocations(_currentLocation!);
-                          _mapController?.animateCamera(
-                            CameraUpdate.newLatLngZoom(_currentLocation!, 14),
-                          );
-                        },
-                        icon: const Icon(Icons.near_me),
-                        label: const Text('Find Nearby'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue[600],
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
+                      bottom: 24,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            _fetchNearbyLocations(_currentLocation!);
+                            _mapController?.animateCamera(
+                              CameraUpdate.newLatLngZoom(_currentLocation!, 14),
+                            );
+                          },
+                          icon: const Icon(Icons.near_me, size: 20),
+                          label: const Text(
+                            'Find Nearby Places',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                          elevation: 4,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue[600],
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 14,
+                            ),
+                            elevation: 6,
+                            shadowColor: Colors.black.withValues(alpha: 0.3),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(28),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -725,212 +872,125 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // Bottom sheet
-          Expanded(
-            flex: 2,
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(20),
-                  topRight: Radius.circular(20),
+          // Bottom info section - compact
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, -2),
                 ),
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(2)),
+              ],
+            ),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Location info or instruction
+                  if (!_hasValidLocation)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue[200]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Search or drop a pin to select a location',
+                              style: TextStyle(
+                                color: Colors.blue[900],
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.green[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green[200]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.check_circle, color: Colors.green[700], size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _nameController.text.isEmpty
+                                      ? 'Location Selected'
+                                      : _nameController.text,
+                                  style: TextStyle(
+                                    color: Colors.green[900],
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (_addressController.text.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Text(
+                                      _addressController.text,
+                                      style: TextStyle(
+                                        color: Colors.green[700],
+                                        fontSize: 12,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    const Text('Alarm Settings',
+
+                  // Continue button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _hasValidLocation ? _goToAlarmSettings : null,
+                      icon: const Icon(Icons.settings, size: 20),
+                      label: const Text(
+                        'Continue to Alarm Settings',
                         style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-
-                    // Show validation status
-                    if (!_hasValidLocation)
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.orange[50],
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange[300]!),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.info_outline,
-                                color: Colors.orange[700]),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'Search and select a location to continue',
-                                style: TextStyle(color: Colors.orange[900]),
-                              ),
-                            ),
-                          ],
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-
-                    // Selected location info card
-                    if (_hasValidLocation)
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.green[50],
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.green[300]!),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.check_circle,
-                                color: Colors.green[700]),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Location Selected ✓',
-                                    style: TextStyle(
-                                      color: Colors.green[900],
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _nameController.text,
-                                    style: TextStyle(
-                                      color: Colors.green[800],
-                                      fontSize: 12,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue[600],
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        elevation: 2,
+                        disabledBackgroundColor: Colors.grey[300],
+                        disabledForegroundColor: Colors.grey[500],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
                       ),
-
-                    TextField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Location Name',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.label),
-                      ),
-                      enabled: _hasValidLocation,
                     ),
-                    const SizedBox(height: 16),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Trigger Radius',
-                            style: TextStyle(fontWeight: FontWeight.w500)),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.blue[50],
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            '${_radius.toInt()}m',
-                            style: TextStyle(
-                                color: Colors.blue[700],
-                                fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                    Slider(
-                      value: _radius,
-                      min: 100,
-                      max: 2000,
-                      divisions: 19,
-                      activeColor: Colors.blue[600],
-                      onChanged: (v) => setState(() {
-                        _radius = v;
-                        _updateMapMarkers();
-                      }),
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('100m',
-                            style: TextStyle(
-                                color: Colors.grey[600], fontSize: 12)),
-                        Text('2km',
-                            style: TextStyle(
-                                color: Colors.grey[600], fontSize: 12)),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    const Text('Alarm Sound',
-                        style: TextStyle(fontWeight: FontWeight.w500)),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(child: _buildSoundButton('Loud')),
-                        const SizedBox(width: 8),
-                        Expanded(child: _buildSoundButton('Medium')),
-                        const SizedBox(width: 8),
-                        Expanded(child: _buildSoundButton('Soft')),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: _hasValidLocation
-                                ? () => _saveAlarm(false)
-                                : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.grey[100],
-                              foregroundColor: Colors.grey[700],
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              elevation: 0,
-                              disabledBackgroundColor: Colors.grey[200],
-                            ),
-                            child: const Text('Save for Later'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: _hasValidLocation
-                                ? () => _saveAlarm(true)
-                                : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue[600],
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              elevation: 2,
-                              disabledBackgroundColor: Colors.grey[300],
-                            ),
-                            child: const Text('Start Alarm'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
