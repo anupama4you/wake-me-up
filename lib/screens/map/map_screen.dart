@@ -30,7 +30,8 @@ class _MapScreenState extends State<MapScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
 
-  LatLng _selectedLocation = const LatLng(-34.9285, 138.6007);
+  // Will be set to user's current location once available
+  LatLng? _selectedLocation;
   LatLng? _currentLocation;
   Set<Marker> _markers = {};
   Set<Circle> _circles = {};
@@ -117,20 +118,22 @@ class _MapScreenState extends State<MapScreen> {
 
     final position = await LocationService.getCurrentPosition();
     if (position != null && mounted) {
+      final currentLoc = LatLng(position.latitude, position.longitude);
       setState(() {
-        _currentLocation = LatLng(position.latitude, position.longitude);
-        // Only set selected location if no existing alarm
+        _currentLocation = currentLoc;
+        // Set selected location to current location if no existing alarm
         if (widget.existingAlarm == null && !_hasValidLocation) {
-          _selectedLocation = _currentLocation!;
+          _selectedLocation = currentLoc;
         }
         _updateMapMarkers();
       });
 
       if (_mapController != null &&
           widget.existingAlarm == null &&
-          !_hasValidLocation) {
+          !_hasValidLocation &&
+          _selectedLocation != null) {
         _mapController!.animateCamera(
-          CameraUpdate.newLatLngZoom(_selectedLocation, 15),
+          CameraUpdate.newLatLngZoom(_selectedLocation!, 15),
         );
       }
     }
@@ -150,7 +153,8 @@ class _MapScreenState extends State<MapScreen> {
 
       // Skip if this is (roughly) the selected location
       if (_hasValidLocation &&
-          latLngRoughEqual(latLng, _selectedLocation, epsilon: 1e-4)) {
+          _selectedLocation != null &&
+          latLngRoughEqual(latLng, _selectedLocation!, epsilon: 1e-4)) {
         continue;
       }
 
@@ -169,7 +173,7 @@ class _MapScreenState extends State<MapScreen> {
           infoWindow: InfoWindow(
             title: location.name ?? 'Location',
             snippet:
-                '${calculateDistance(_searchCenterLocation ?? _selectedLocation, latLng).toStringAsFixed(0)}m away',
+                '${calculateDistance(_searchCenterLocation ?? _selectedLocation ?? latLng, latLng).toStringAsFixed(0)}m away',
           ),
           onTap: () => _onLocationTapped(location),
         ),
@@ -177,11 +181,11 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     // Add selected location marker (prominent, green if valid)
-    if (_hasValidLocation) {
+    if (_hasValidLocation && _selectedLocation != null) {
       markers.add(
         Marker(
           markerId: const MarkerId('selected_location'),
-          position: _selectedLocation,
+          position: _selectedLocation!,
           icon: BitmapDescriptor.defaultMarkerWithHue(
               BitmapDescriptor.hueGreen),
           infoWindow: InfoWindow(
@@ -351,7 +355,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
 
-  // ------- Autocomplete (debounced + session token + AU bias) -------
+  // ------- Autocomplete (debounced + session token + location bias) -------
   void _onSearchChanged(String input) {
     _debounceTimer?.cancel();
 
@@ -371,15 +375,31 @@ class _MapScreenState extends State<MapScreen> {
     _sessionToken ??= UniqueKey().toString();
 
     _debounceTimer = Timer(_debounce, () async {
+      // Use current location or map center for better biasing
+      LatLng? biasLocation = _currentLocation;
+
+      // If we have a map controller, use the visible map center
+      if (_mapController != null) {
+        try {
+          final visibleRegion = await _mapController!.getVisibleRegion();
+          biasLocation = LatLng(
+            (visibleRegion.northeast.latitude + visibleRegion.southwest.latitude) / 2,
+            (visibleRegion.northeast.longitude + visibleRegion.southwest.longitude) / 2,
+          );
+        } catch (_) {
+          // Fall back to current location if map region fails
+        }
+      }
+
       final result = await _googlePlace.autocomplete.get(
         input,
         sessionToken: _sessionToken,
-        location: _currentLocation != null
-            ? LatLon(
-                _currentLocation!.latitude, _currentLocation!.longitude)
+        location: biasLocation != null
+            ? LatLon(biasLocation.latitude, biasLocation.longitude)
             : null,
-        radius: _currentLocation != null ? 30000 : null,
-        components: [Component('country', 'au')], // Bias to AU
+        radius: biasLocation != null ? 50000 : null, // 50km radius for strong local bias
+        components: [Component('country', 'au')], // Restrict to Australia
+        strictbounds: false, // Allow results outside bounds but prioritize within
       );
 
       if (!mounted) return;
@@ -637,7 +657,7 @@ class _MapScreenState extends State<MapScreen> {
               ? 'Selected Location'
               : _nameController.text.trim(),
           address: _addressController.text.trim(),
-          selectedLocation: _selectedLocation,
+          selectedLocation: _selectedLocation!,
           existingAlarm: widget.existingAlarm,
         ),
       ),
@@ -686,7 +706,7 @@ class _MapScreenState extends State<MapScreen> {
                       _mapController ??= controller;
                     },
                     initialCameraPosition: CameraPosition(
-                      target: _selectedLocation,
+                      target: _selectedLocation ?? const LatLng(-33.8688, 151.2093), // Default to Sydney
                       zoom: 15,
                     ),
                     markers: _markers,
@@ -816,7 +836,7 @@ class _MapScreenState extends State<MapScreen> {
                     selectedCategory: _selectedCategory,
                     isLoadingLocations: _isLoadingLocations,
                     searchCenterLocation: _searchCenterLocation,
-                    selectedLocation: _selectedLocation,
+                    selectedLocation: _selectedLocation ?? const LatLng(-33.8688, 151.2093),
                     onPredictionTapped: _onPredictionTapped,
                     onLocationTapped: _onLocationTapped,
                   ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../models/alarm.dart';
+import '../../services/alarm_storage_service.dart';
 import '../active_alarm_screen.dart';
 
 class AlarmSettingsScreen extends StatefulWidget {
@@ -59,7 +60,7 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
     );
   }
 
-  void _saveAlarm(bool startNow) {
+  Future<void> _saveAlarm(bool startNow) async {
     if (_nameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a location name')),
@@ -78,6 +79,22 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
       isActive: startNow,
     );
 
+    // Save alarm to local storage
+    try {
+      await AlarmStorageService.saveAlarm(alarm);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error saving alarm: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
     if (startNow) {
       Navigator.pushReplacement(
         context,
@@ -95,7 +112,7 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
               const Icon(Icons.check_circle, color: Colors.white),
               const SizedBox(width: 8),
               Expanded(
-                child: Text('Alarm "${alarm.name}" saved for later'),
+                child: Text('Alarm "${alarm.name}" saved'),
               ),
             ],
           ),
