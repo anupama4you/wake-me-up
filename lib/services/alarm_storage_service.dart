@@ -40,17 +40,40 @@ class AlarmStorageService {
 
   /// Save an alarm to local storage
   static Future<void> saveAlarm(Alarm alarm) async {
+    debugPrint('💾 AlarmStorageService.saveAlarm() called');
+    debugPrint('   - ID: ${alarm.id}');
+    debugPrint('   - Name: ${alarm.name}');
+    debugPrint('   - Active: ${alarm.isActive}');
+    debugPrint('   - Box path: ${_box.path}');
+    debugPrint('   - Box length before: ${_box.length}');
+
     await _box.put(alarm.id, alarm.toJson());
+
+    debugPrint('   - Box length after: ${_box.length}');
+    debugPrint('   - Alarm keys in box: ${_box.keys.toList()}');
+    debugPrint('✅ Alarm saved to Hive');
   }
 
   /// Get all saved alarms
   static List<Alarm> getAllAlarms() {
     try {
+      debugPrint('📖 AlarmStorageService.getAllAlarms() called');
+      debugPrint('   - Box length: ${_box.length}');
+      debugPrint('   - Box keys: ${_box.keys.toList()}');
+
       final alarmMaps = _box.values.toList();
-      return alarmMaps
+      final alarms = alarmMaps
           .map((map) => Alarm.fromJson(Map<String, dynamic>.from(map)))
           .toList();
+
+      debugPrint('   - Loaded ${alarms.length} alarms:');
+      for (var alarm in alarms) {
+        debugPrint('     • ${alarm.name} (ID: ${alarm.id}, Active: ${alarm.isActive})');
+      }
+
+      return alarms;
     } catch (e) {
+      debugPrint('❌ Error loading alarms: $e');
       // Error loading alarms - return empty list
       return [];
     }

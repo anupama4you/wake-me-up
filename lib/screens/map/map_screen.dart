@@ -375,42 +375,82 @@ class _MapScreenState extends State<MapScreen> {
     _sessionToken ??= UniqueKey().toString();
 
     _debounceTimer = Timer(_debounce, () async {
-      // Use current location or map center for better biasing
-      LatLng? biasLocation = _currentLocation;
+      try {
+        debugPrint('🔍 Searching for: "$input"');
 
-      // If we have a map controller, use the visible map center
-      if (_mapController != null) {
-        try {
-          final visibleRegion = await _mapController!.getVisibleRegion();
-          biasLocation = LatLng(
-            (visibleRegion.northeast.latitude + visibleRegion.southwest.latitude) / 2,
-            (visibleRegion.northeast.longitude + visibleRegion.southwest.longitude) / 2,
+        // Use current location or map center for better biasing
+        LatLng? biasLocation = _currentLocation;
+
+        // If we have a map controller, use the visible map center
+        if (_mapController != null) {
+          try {
+            final visibleRegion = await _mapController!.getVisibleRegion();
+            biasLocation = LatLng(
+              (visibleRegion.northeast.latitude + visibleRegion.southwest.latitude) / 2,
+              (visibleRegion.northeast.longitude + visibleRegion.southwest.longitude) / 2,
+            );
+            debugPrint('📍 Using map center for bias: ${biasLocation.latitude}, ${biasLocation.longitude}');
+          } catch (_) {
+            // Fall back to current location if map region fails
+            debugPrint('⚠️ Failed to get visible region, using current location');
+          }
+        }
+
+        debugPrint('📡 Calling Google Places Autocomplete API...');
+        final result = await _googlePlace.autocomplete.get(
+          input,
+          sessionToken: _sessionToken,
+          location: biasLocation != null
+              ? LatLon(biasLocation.latitude, biasLocation.longitude)
+              : null,
+          radius: biasLocation != null ? 50000 : null, // 50km radius for strong local bias
+          components: [Component('country', 'au')], // Restrict to Australia
+          strictbounds: false, // Allow results outside bounds but prioritize within
+        );
+
+        if (!mounted) return;
+
+        debugPrint('✅ API Response received');
+        debugPrint('   - Status: ${result?.status}');
+        debugPrint('   - Predictions count: ${result?.predictions?.length ?? 0}');
+
+        if (result?.status == 'REQUEST_DENIED') {
+          debugPrint('❌ REQUEST_DENIED - Check your API key and billing');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('API Error: Check your Google API key and billing'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 5),
+              ),
+            );
+          }
+          return;
+        }
+
+        if (result?.status == 'ZERO_RESULTS') {
+          debugPrint('⚠️ No predictions found for "$input"');
+        }
+
+        final preds = result?.predictions ?? [];
+        setState(() {
+          _predictions = preds;
+          _nearbyLocations = [];
+          _showingLocations = false;
+          _showPredictions = preds.isNotEmpty;
+        });
+      } catch (e, stackTrace) {
+        debugPrint('❌ Error fetching predictions: $e');
+        debugPrint('Stack trace: $stackTrace');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Search error: $e'),
+              backgroundColor: Colors.red,
+            ),
           );
-        } catch (_) {
-          // Fall back to current location if map region fails
         }
       }
-
-      final result = await _googlePlace.autocomplete.get(
-        input,
-        sessionToken: _sessionToken,
-        location: biasLocation != null
-            ? LatLon(biasLocation.latitude, biasLocation.longitude)
-            : null,
-        radius: biasLocation != null ? 50000 : null, // 50km radius for strong local bias
-        components: [Component('country', 'au')], // Restrict to Australia
-        strictbounds: false, // Allow results outside bounds but prioritize within
-      );
-
-      if (!mounted) return;
-
-      final preds = result?.predictions ?? [];
-      setState(() {
-        _predictions = preds;
-        _nearbyLocations = [];
-        _showingLocations = false;
-        _showPredictions = preds.isNotEmpty;
-      });
     });
   }
 

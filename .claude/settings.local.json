@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(cat:*)",
-      "Bash(flutter analyze:*)"
+      "Bash(flutter analyze:*)",
+      "Bash(flutter pub:*)",
+      "Read(//Users/anupama4you/.pub-cache/hosted/pub.dev/geofence_service-6.0.0+1/lib/**)",
+      "Read(//Users/anupama4you/.pub-cache/hosted/pub.dev/**)"
     ],
     "deny": [],
     "ask": []

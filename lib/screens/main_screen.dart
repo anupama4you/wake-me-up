@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/alarm.dart';
 import '../services/alarm_storage_service.dart';
+import '../services/geofence_service.dart';
 import 'home_screen.dart';
 import 'map_view_screen.dart';
 import 'settings_screen.dart';
@@ -85,11 +86,25 @@ class _MainScreenState extends State<MainScreen> {
         return;
       }
 
+      debugPrint('🔄 MainScreen: Loading alarms from storage...');
       final alarms = AlarmStorageService.getAllAlarms();
+      debugPrint('🔄 MainScreen: Loaded ${alarms.length} alarms from storage');
+
       setState(() {
         _alarms = alarms;
         _isLoading = false;
       });
+      debugPrint('✅ MainScreen: State updated with ${_alarms.length} alarms');
+
+      // Sync geofences with active alarms (restore geofencing after app restart)
+      try {
+        final geofenceService = GeofenceAlarmService();
+        await geofenceService.initialize();
+        await geofenceService.syncGeofencesWithAlarms();
+        debugPrint('✅ Geofences synced with active alarms');
+      } catch (e) {
+        debugPrint('⚠️ Error syncing geofences: $e');
+      }
     } catch (e) {
       setState(() {
         _alarms = [];
@@ -134,6 +149,33 @@ class _MainScreenState extends State<MainScreen> {
         );
       }
     }
+
+    // Handle geofencing based on alarm state
+    try {
+      final geofenceService = GeofenceAlarmService();
+      await geofenceService.initialize();
+
+      if (active) {
+        // Start geofencing for the activated alarm
+        final alarm = _alarms.firstWhere((a) => a.id == id);
+        await geofenceService.startGeofencing(alarm);
+        debugPrint('✅ Geofencing started for: ${alarm.name}');
+      } else {
+        // Stop geofencing for the deactivated alarm
+        await geofenceService.stopGeofencing(id);
+        debugPrint('🛑 Geofencing stopped for alarm: $id');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Geofencing toggle error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Geofencing error: $e'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _deleteAlarm(String id) async {
@@ -152,35 +194,47 @@ class _MainScreenState extends State<MainScreen> {
         );
       }
     }
+
+    // Stop geofencing for deleted alarm
+    try {
+      final geofenceService = GeofenceAlarmService();
+      await geofenceService.stopGeofencing(id);
+      debugPrint('🛑 Geofencing stopped for deleted alarm: $id');
+    } catch (e) {
+      debugPrint('⚠️ Error stopping geofencing: $e');
+    }
   }
 
   Future<void> _handleAddAlarm() async {
+    debugPrint('🔄 MainScreen: Navigating to add alarm...');
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const MapScreen()),
     );
 
-    // Reload alarms from storage (they're saved in AlarmSettingsScreen)
-    if (result != null && result is Alarm) {
-      await _loadAlarms();
+    debugPrint('🔄 MainScreen: Returned from add alarm with result: $result');
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('Alarm "${result.name}" added successfully'),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.green[600],
-            duration: const Duration(milliseconds: 1500),
+    // Always reload alarms from storage when returning
+    // (alarm may have been added, or an active alarm may have been stopped)
+    await _loadAlarms();
+
+    // Show success message if an alarm was added
+    if (result != null && result is Alarm && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text('Alarm "${result.name}" added successfully'),
+              ),
+            ],
           ),
-        );
-      }
+          backgroundColor: Colors.green[600],
+          duration: const Duration(milliseconds: 1500),
+        ),
+      );
     }
   }
 

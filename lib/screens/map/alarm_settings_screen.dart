@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../models/alarm.dart';
 import '../../services/alarm_storage_service.dart';
+import '../../services/geofence_service.dart';
 import '../active_alarm_screen.dart';
 
 class AlarmSettingsScreen extends StatefulWidget {
@@ -81,8 +82,19 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
 
     // Save alarm to local storage
     try {
+      debugPrint('💾 Saving alarm to storage: ${alarm.name} (ID: ${alarm.id})');
       await AlarmStorageService.saveAlarm(alarm);
+      debugPrint('✅ Alarm saved successfully to Hive');
+
+      // Verify save by reading back
+      final savedAlarm = AlarmStorageService.getAlarm(alarm.id);
+      if (savedAlarm != null) {
+        debugPrint('✅ Verified: Alarm found in storage with isActive=${savedAlarm.isActive}');
+      } else {
+        debugPrint('⚠️ Warning: Alarm saved but cannot be retrieved');
+      }
     } catch (e) {
+      debugPrint('❌ Failed to save alarm: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -93,15 +105,50 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
       return;
     }
 
+    // If starting now, set up geofencing
+    if (startNow) {
+      try {
+        final geofenceService = GeofenceAlarmService();
+        await geofenceService.initialize();
+        final success = await geofenceService.startGeofencing(alarm);
+
+        if (!success) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to start background geofencing'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('⚠️ Geofencing setup error: $e');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Geofencing error: $e'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+
     if (!mounted) return;
 
     if (startNow) {
-      Navigator.pushReplacement(
+      // Navigate to active alarm screen and wait for result
+      final result = await Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (context) => ActiveAlarmScreen(alarm: alarm),
         ),
       );
+
+      // If alarm was stopped (result == true), return to previous screen
+      // This will cause main screen to reload
+      if (result == true && mounted) {
+        Navigator.pop(context, alarm);
+      }
     } else {
       Navigator.pop(context, alarm);
 
