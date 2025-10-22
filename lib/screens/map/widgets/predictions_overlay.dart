@@ -1,20 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:google_place/google_place.dart';
+import '../../../services/google_places_service.dart';
 import '../location_type.dart';
 import '../helpers/map_helpers.dart';
 
 class PredictionsOverlay extends StatelessWidget {
   final bool showPredictions;
   final bool showingLocations;
-  final List<AutocompletePrediction> predictions;
-  final List<DetailsResult> nearbyLocations;
+  final List<PlacePrediction> predictions;
+  final List<PlaceDetails> nearbyLocations;
   final LocationType selectedCategory;
   final bool isLoadingLocations;
   final LatLng? searchCenterLocation;
   final LatLng selectedLocation;
-  final Function(AutocompletePrediction) onPredictionTapped;
-  final Function(DetailsResult) onLocationTapped;
+  final Function(PlacePrediction) onPredictionTapped;
+  final Function(PlaceDetails) onLocationTapped;
 
   const PredictionsOverlay({
     super.key,
@@ -194,8 +194,8 @@ class PredictionsOverlay extends StatelessWidget {
                 final distance = calculateDistance(
                   searchCenterLocation ?? selectedLocation,
                   LatLng(
-                    location.geometry!.location!.lat!,
-                    location.geometry!.location!.lng!,
+                    location.location!.latitude,
+                    location.location!.longitude,
                   ),
                 );
 
@@ -226,7 +226,7 @@ class PredictionsOverlay extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                location.name ?? 'Location',
+                                location.displayName?.text ?? 'Location',
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w600,
                                   fontSize: 15,
@@ -236,7 +236,7 @@ class PredictionsOverlay extends StatelessWidget {
                               ),
                               const SizedBox(height: 3),
                               Text(
-                                '${distance.toStringAsFixed(0)}m away${location.vicinity != null ? " • ${location.vicinity}" : ""}',
+                                '${distance.toStringAsFixed(0)}m away${location.formattedAddress != null ? " • ${location.formattedAddress}" : ""}',
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.grey[600],
@@ -294,18 +294,18 @@ class PredictionsOverlay extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            p.structuredFormatting?.mainText ?? p.description ?? '',
+                            p.structuredFormat?.mainText?.text ?? p.text?.text ?? '',
                             style: const TextStyle(
                               fontWeight: FontWeight.w500,
                               fontSize: 15,
                             ),
                           ),
-                          if (p.structuredFormatting?.secondaryText != null &&
-                              p.structuredFormatting!.secondaryText!.isNotEmpty)
+                          if (p.structuredFormat?.secondaryText?.text != null &&
+                              p.structuredFormat!.secondaryText!.text.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 2),
                               child: Text(
-                                p.structuredFormatting!.secondaryText!,
+                                p.structuredFormat!.secondaryText!.text,
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.grey[600],

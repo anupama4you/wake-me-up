@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:google_place/google_place.dart';
 
 import '../../models/alarm.dart';
 import '../../services/location_service.dart';
+import '../../services/google_places_service.dart';
 import 'location_type.dart';
 import 'widgets/category_tabs.dart';
 import 'widgets/search_box.dart';
@@ -37,11 +38,11 @@ class _MapScreenState extends State<MapScreen> {
   Set<Circle> _circles = {};
 
   // ---- Places state ----
-  late final GooglePlace _googlePlace;
+  late final GooglePlacesService _googlePlacesService;
   final Duration _debounce = const Duration(milliseconds: 350);
   Timer? _debounceTimer;
-  List<AutocompletePrediction> _predictions = [];
-  List<DetailsResult> _nearbyLocations = [];
+  List<PlacePrediction> _predictions = [];
+  List<PlaceDetails> _nearbyLocations = [];
   bool _showPredictions = false;
   bool _showingLocations = false;
   bool _hasValidLocation = false;
@@ -53,9 +54,21 @@ class _MapScreenState extends State<MapScreen> {
   LocationType _selectedCategory = LocationType.all;
   LatLng? _searchCenterLocation;
 
-  // ---- Search session & caching ----
+  // ---- Search session ----
   String? _sessionToken; // Autocomplete session token
-  final Map<String, DetailsResult> _detailsCache = {}; // Lazy Details cache
+
+  /// Generate a session token for Places API (max 36 characters)
+  /// Format: UUID-like string (8-4-4-4-12 characters)
+  String _generateSessionToken() {
+    final random = Random.secure();
+
+    String randomHex(int length) {
+      return List.generate(length, (_) => random.nextInt(16).toRadixString(16)).join();
+    }
+
+    // Generate UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+    return '${randomHex(8)}-${randomHex(4)}-4${randomHex(3)}-${randomHex(4)}-${randomHex(12)}';
+  }
 
   @override
   void initState() {
@@ -69,7 +82,7 @@ class _MapScreenState extends State<MapScreen> {
       debugPrint('✅ Google API Key loaded from .env');
     }
 
-    _googlePlace = GooglePlace(apiKey);
+    _googlePlacesService = GooglePlacesService(apiKey);
 
     if (widget.existingAlarm != null) {
       final a = widget.existingAlarm!;
@@ -146,10 +159,10 @@ class _MapScreenState extends State<MapScreen> {
     final displayLocations = _nearbyLocations.take(10).toList();
 
     for (var location in displayLocations) {
-      final loc = location.geometry?.location;
+      final loc = location.location;
       if (loc == null) continue;
 
-      final latLng = LatLng(loc.lat!, loc.lng!);
+      final latLng = LatLng(loc.latitude, loc.longitude);
 
       // Skip if this is (roughly) the selected location
       if (_hasValidLocation &&
@@ -166,12 +179,12 @@ class _MapScreenState extends State<MapScreen> {
       markers.add(
         Marker(
           markerId:
-              MarkerId(location.placeId ?? 'place_${markers.length}'),
+              MarkerId(location.id),
           position: latLng,
           icon: markerIcon,
           alpha: 0.75, // slightly transparent
           infoWindow: InfoWindow(
-            title: location.name ?? 'Location',
+            title: location.displayName?.text ?? 'Location',
             snippet:
                 '${calculateDistance(_searchCenterLocation ?? _selectedLocation ?? latLng, latLng).toStringAsFixed(0)}m away',
           ),
@@ -261,6 +274,7 @@ class _MapScreenState extends State<MapScreen> {
     });
 
     try {
+      // Map old type names to new Places API type names
       final types = _selectedCategory == LocationType.all
           ? [
               'bus_station',
@@ -272,48 +286,33 @@ class _MapScreenState extends State<MapScreen> {
           : [_selectedCategory.googleType];
 
       final seen = <String>{};
-      final all = <DetailsResult>[];
+      final all = <PlaceDetails>[];
 
       for (final type in types) {
-        final res = await _googlePlace.search.getNearBySearch(
-          Location(lat: location.latitude, lng: location.longitude),
-          1500,
-          type: type,
-        );
-
-        for (final p in (res?.results ?? []).take(15)) {
-          final pid = p.placeId;
-          if (pid == null || seen.contains(pid)) continue;
-          seen.add(pid);
-
-          // Build a lightweight DetailsResult so UI can render immediately
-          all.add(
-            DetailsResult(
-              placeId: pid,
-              name: p.name,
-              vicinity: p.vicinity,
-              geometry: Geometry(
-                location: Location(
-                  lat: p.geometry?.location?.lat,
-                  lng: p.geometry?.location?.lng,
-                ),
-              ),
-              types: p.types,
-              rating: p.rating,
-              userRatingsTotal: p.userRatingsTotal,
-              openingHours: p.openingHours,
-              photos: p.photos,
-            ),
+        try {
+          final response = await _googlePlacesService.nearbySearch(
+            latitude: location.latitude,
+            longitude: location.longitude,
+            radiusMeters: 1500,
+            includedTypes: [type],
+            maxResultCount: 15,
           );
+
+          for (final place in response.places) {
+            if (seen.contains(place.id)) continue;
+            seen.add(place.id);
+            all.add(place);
+          }
+        } catch (e) {
+          debugPrint('Error fetching type $type: $e');
+          // Continue with other types
         }
       }
 
       // Sort by distance from center
       all.sort((a, b) {
-        final la = LatLng(
-            a.geometry!.location!.lat!, a.geometry!.location!.lng!);
-        final lb = LatLng(
-            b.geometry!.location!.lat!, b.geometry!.location!.lng!);
+        final la = LatLng(a.location!.latitude, a.location!.longitude);
+        final lb = LatLng(b.location!.latitude, b.location!.longitude);
         final da = calculateDistance(location, la);
         final db = calculateDistance(location, lb);
         return da.compareTo(db);
@@ -334,8 +333,8 @@ class _MapScreenState extends State<MapScreen> {
         final pts = <LatLng>[
           location,
           ...all.take(6).map((e) => LatLng(
-                e.geometry!.location!.lat!,
-                e.geometry!.location!.lng!,
+                e.location!.latitude,
+                e.location!.longitude,
               )),
         ];
         final bounds = pts.toBounds();
@@ -372,7 +371,7 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     // Start a session when user starts typing
-    _sessionToken ??= UniqueKey().toString();
+    _sessionToken ??= _generateSessionToken();
 
     _debounceTimer = Timer(_debounce, () async {
       try {
@@ -396,43 +395,30 @@ class _MapScreenState extends State<MapScreen> {
           }
         }
 
-        debugPrint('📡 Calling Google Places Autocomplete API...');
-        final result = await _googlePlace.autocomplete.get(
-          input,
+        debugPrint('📡 Calling Google Places Autocomplete API (New)...');
+        final result = await _googlePlacesService.autocomplete(
+          input: input,
           sessionToken: _sessionToken,
-          location: biasLocation != null
-              ? LatLon(biasLocation.latitude, biasLocation.longitude)
-              : null,
-          radius: biasLocation != null ? 50000 : null, // 50km radius for strong local bias
-          components: [Component('country', 'au')], // Restrict to Australia
-          strictbounds: false, // Allow results outside bounds but prioritize within
+          latitude: biasLocation?.latitude,
+          longitude: biasLocation?.longitude,
+          radiusMeters: 50000, // 50km radius for strong local bias
+          regionCode: 'AU', // Restrict to Australia
         );
 
         if (!mounted) return;
 
         debugPrint('✅ API Response received');
-        debugPrint('   - Status: ${result?.status}');
-        debugPrint('   - Predictions count: ${result?.predictions?.length ?? 0}');
+        debugPrint('   - Predictions count: ${result.suggestions.length}');
 
-        if (result?.status == 'REQUEST_DENIED') {
-          debugPrint('❌ REQUEST_DENIED - Check your API key and billing');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('API Error: Check your Google API key and billing'),
-                backgroundColor: Colors.red,
-                duration: Duration(seconds: 5),
-              ),
-            );
-          }
-          return;
-        }
+        final preds = result.suggestions
+            .map((s) => s.placePrediction)
+            .whereType<PlacePrediction>()
+            .toList();
 
-        if (result?.status == 'ZERO_RESULTS') {
+        if (preds.isEmpty) {
           debugPrint('⚠️ No predictions found for "$input"');
         }
 
-        final preds = result?.predictions ?? [];
         setState(() {
           _predictions = preds;
           _nearbyLocations = [];
@@ -445,8 +431,9 @@ class _MapScreenState extends State<MapScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Search error: $e'),
+              content: Text('Search error: ${e.toString()}'),
               backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
             ),
           );
         }
@@ -462,19 +449,19 @@ class _MapScreenState extends State<MapScreen> {
 
     try {
       // Try to find a nearby place for reverse geocoding
-      final result = await _googlePlace.search.getNearBySearch(
-        Location(lat: position.latitude, lng: position.longitude),
-        50, // Very small radius to get nearest place
+      final result = await _googlePlacesService.nearbySearch(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        radiusMeters: 50, // Very small radius to get nearest place
+        maxResultCount: 1,
       );
 
       String locationName = 'Pinned Location';
 
       // Try to get a meaningful name from nearby search
-      if (result?.results != null && result!.results!.isNotEmpty) {
-        final nearestPlace = result.results!.first;
-        if (nearestPlace.name != null) {
-          locationName = nearestPlace.name!;
-        }
+      if (result.places.isNotEmpty) {
+        final nearestPlace = result.places.first;
+        locationName = nearestPlace.displayName?.text ?? 'Pinned Location';
       }
 
       if (!mounted) return;
@@ -544,30 +531,15 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   // ------- Location selection from list or marker (lazy Details) -------
-  Future<void> _onLocationTapped(DetailsResult location) async {
+  Future<void> _onLocationTapped(PlaceDetails location) async {
     FocusScope.of(context).unfocus();
 
-    final pid = location.placeId;
-    DetailsResult? full = pid != null ? _detailsCache[pid] : null;
-
-    if (pid != null && full == null) {
-      try {
-        final det = await _googlePlace.details.get(pid);
-        full = det?.result ?? location;
-        _detailsCache[pid] = full;
-      } catch (_) {
-        full = location;
-      }
-    } else {
-      full ??= location;
-    }
-
-    final loc = full.geometry?.location;
+    final loc = location.location;
     if (loc == null) return;
 
-    final newLatLng = LatLng(loc.lat!, loc.lng!);
-    final name = full.name ?? 'Location';
-    final addr = full.formattedAddress ?? full.vicinity ?? name;
+    final newLatLng = LatLng(loc.latitude, loc.longitude);
+    final name = location.displayName?.text ?? 'Location';
+    final addr = location.formattedAddress ?? name;
 
     setState(() {
       _selectedLocation = newLatLng;
@@ -608,24 +580,25 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   // ------- Prediction tapped: details + show Nearby; end session -------
-  Future<void> _onPredictionTapped(AutocompletePrediction p) async {
+  Future<void> _onPredictionTapped(PlacePrediction p) async {
     FocusScope.of(context).unfocus();
 
     final placeId = p.placeId;
-    if (placeId == null) return;
 
     setState(() {
       _showPredictions = false;
       _isLoadingPlaceDetails = true;
       _addressController.text =
-          p.structuredFormatting?.mainText ?? p.description ?? '';
+          p.structuredFormat?.mainText?.text ?? p.text?.text ?? '';
     });
 
     try {
-      final detailsResp =
-          await _googlePlace.details.get(placeId, sessionToken: _sessionToken);
-      final details = detailsResp?.result;
-      final loc = details?.geometry?.location;
+      final details = await _googlePlacesService.placeDetails(
+        placeId: placeId,
+        sessionToken: _sessionToken,
+      );
+
+      final loc = details.location;
       _sessionToken = null; // end billing/ranking session
 
       if (loc == null) {
@@ -636,13 +609,13 @@ class _MapScreenState extends State<MapScreen> {
         return;
       }
 
-      final newLatLng = LatLng(loc.lat!, loc.lng!);
+      final newLatLng = LatLng(loc.latitude, loc.longitude);
 
       // Update search text with full address if available
       if (mounted) {
         setState(() {
           _addressController.text =
-              details?.formattedAddress ?? details?.name ?? p.description ?? '';
+              details.formattedAddress ?? details.displayName?.text ?? p.text?.text ?? '';
         });
       }
 

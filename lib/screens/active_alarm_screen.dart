@@ -266,295 +266,351 @@ class _ActiveAlarmScreenState extends State<ActiveAlarmScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Text(
-          widget.alarm.name,
-          style: const TextStyle(color: Colors.white),
+        title: const Text(
+          'Active Alarm',
+          style: TextStyle(
+            color: Colors.black87,
+            fontWeight: FontWeight.w600,
+          ),
         ),
-        backgroundColor: _alarmTriggered ? Colors.green[600] : Colors.blue[600],
-        iconTheme: const IconThemeData(color: Colors.white),
+        backgroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.black87),
         elevation: 0,
       ),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              // Animated status card
-              AnimatedBuilder(
-                animation: _pulseAnimation,
-                builder: (context, child) {
-                  return Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: _alarmTriggered
-                            ? [Colors.green[600]!, Colors.green[700]!]
-                            : [Colors.blue[600]!, Colors.blue[700]!],
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.15),
-                          blurRadius: 15,
-                          offset: const Offset(0, 5),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        // Animated icon
-                        Transform.scale(
-                          scale: _alarmTriggered ? 1.0 : _pulseAnimation.value,
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.2),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              _alarmTriggered
-                                  ? Icons.notifications_active
-                                  : Icons.my_location,
-                              color: Colors.white,
-                              size: 40,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _alarmTriggered
-                              ? 'You\'ve Arrived!'
-                              : 'Tracking Your Location',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            _currentLocation == null
-                                ? 'Getting location...'
-                                : '${_distanceToTarget.toStringAsFixed(0)}m away',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-
-              // Map with animated overlay
-              Expanded(
-                child: Stack(
-                  children: [
-                    GoogleMap(
-                      onMapCreated: (controller) {
-                        _mapController = controller;
-                        if (_currentLocation != null) {
-                          controller.animateCamera(
-                            CameraUpdate.newLatLngZoom(_currentLocation!, 15),
-                          );
-                        }
-                      },
-                      initialCameraPosition: CameraPosition(
-                        target: LatLng(widget.alarm.latitude, widget.alarm.longitude),
-                        zoom: 15,
-                      ),
-                      markers: _markers,
-                      circles: _circles,
-                      myLocationEnabled: true,
-                      myLocationButtonEnabled: true,
-                      zoomControlsEnabled: false,
-                    ),
-                  ],
-                ),
-              ),
-
-              // Bottom info card with finish button
-              Container(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.15),
-                      blurRadius: 20,
-                      offset: const Offset(0, -5),
-                    ),
-                  ],
-                ),
-                child: SafeArea(
-                  top: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Location info
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: (_alarmTriggered ? Colors.green : Colors.blue)[50],
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(
-                              Icons.location_on,
-                              color: (_alarmTriggered ? Colors.green : Colors.blue)[700],
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  widget.alarm.name,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  widget.alarm.address,
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 13,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Stats row
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _buildInfoChip(
-                            Icons.radio_button_checked,
-                            'Radius',
-                            '${widget.alarm.radius.toInt()}m',
-                            _alarmTriggered ? Colors.green : Colors.blue,
-                          ),
-                          Container(
-                            width: 1,
-                            height: 40,
-                            color: Colors.grey[300],
-                          ),
-                          _buildInfoChip(
-                            Icons.volume_up,
-                            'Sound',
-                            widget.alarm.soundLevel,
-                            _alarmTriggered ? Colors.green : Colors.blue,
-                          ),
-                          Container(
-                            width: 1,
-                            height: 40,
-                            color: Colors.grey[300],
-                          ),
-                          _buildInfoChip(
-                            Icons.navigation,
-                            'Distance',
-                            '${_distanceToTarget.toStringAsFixed(0)}m',
-                            _alarmTriggered ? Colors.green : Colors.blue,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Action button
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: ElevatedButton(
-                          onPressed: _alarmTriggered ? _deactivateAlarmAndReturn : _stopAlarm,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _alarmTriggered ? Colors.green[600] : Colors.red[600],
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                _alarmTriggered ? Icons.check_circle : Icons.stop_circle,
-                                size: 24,
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                _alarmTriggered ? 'Finish & Return Home' : 'Stop Tracking',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Active Alarm Card with Map Preview
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+                border: Border(
+                  left: BorderSide(
+                    color: _alarmTriggered ? Colors.green : Colors.blue,
+                    width: 4,
                   ),
                 ),
               ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+              child: Column(
+                children: [
+                  // Map Preview
+                  ClipRRect(
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
+                    ),
+                    child: SizedBox(
+                      height: 200,
+                      child: GoogleMap(
+                        onMapCreated: (controller) {
+                          _mapController = controller;
+                          if (_currentLocation != null) {
+                            controller.animateCamera(
+                              CameraUpdate.newLatLngZoom(_currentLocation!, 15),
+                            );
+                          }
+                        },
+                        initialCameraPosition: CameraPosition(
+                          target: LatLng(widget.alarm.latitude, widget.alarm.longitude),
+                          zoom: 15,
+                        ),
+                        markers: _markers,
+                        circles: _circles,
+                        myLocationEnabled: true,
+                        myLocationButtonEnabled: false,
+                        zoomControlsEnabled: false,
+                        zoomGesturesEnabled: false,
+                        scrollGesturesEnabled: false,
+                        rotateGesturesEnabled: false,
+                        tiltGesturesEnabled: false,
+                      ),
+                    ),
+                  ),
 
-  Widget _buildInfoChip(IconData icon, String label, String value, MaterialColor color) {
-    return Column(
-      children: [
-        Icon(icon, color: color[600], size: 22),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 11,
-            fontWeight: FontWeight.w500,
-          ),
+                  // Card Content
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Header with name and status badge
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.alarm.name,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.black87,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    widget.alarm.address,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey[600],
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _alarmTriggered
+                                    ? Colors.green[100]
+                                    : Colors.blue[100],
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                _alarmTriggered ? 'ARRIVED' : 'ACTIVE',
+                                style: TextStyle(
+                                  color: _alarmTriggered
+                                      ? Colors.green[700]
+                                      : Colors.blue[700],
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // Info chips
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.radio_button_checked,
+                              size: 16,
+                              color: Colors.grey[600],
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${widget.alarm.radius.toInt()}m radius',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Icon(
+                              Icons.volume_up,
+                              size: 16,
+                              color: Colors.grey[600],
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              widget.alarm.soundLevel,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 16),
+
+                        // Distance indicator
+                        AnimatedBuilder(
+                          animation: _pulseAnimation,
+                          builder: (context, child) {
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                color: _alarmTriggered
+                                    ? Colors.green[50]
+                                    : Colors.blue[50],
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: _alarmTriggered
+                                      ? Colors.green[200]!
+                                      : Colors.blue[200]!,
+                                  width: 1,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Transform.scale(
+                                    scale: _alarmTriggered ? 1.0 : _pulseAnimation.value,
+                                    child: Icon(
+                                      _alarmTriggered
+                                          ? Icons.check_circle
+                                          : Icons.navigation,
+                                      color: _alarmTriggered
+                                          ? Colors.green[700]
+                                          : Colors.blue[700],
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _currentLocation == null
+                                        ? 'Getting location...'
+                                        : _alarmTriggered
+                                            ? 'You\'ve arrived!'
+                                            : '${_distanceToTarget.toStringAsFixed(0)}m away',
+                                    style: TextStyle(
+                                      color: _alarmTriggered
+                                          ? Colors.green[900]
+                                          : Colors.blue[900],
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 16),
+                        Divider(height: 1, color: Colors.grey[200]),
+                        const SizedBox(height: 16),
+
+                        // Action buttons
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: _stopAlarm,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red[50],
+                                  foregroundColor: Colors.red[600],
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: const Text(
+                                  'Stop',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: _alarmTriggered ? _deactivateAlarmAndReturn : null,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _alarmTriggered
+                                      ? Colors.green[600]
+                                      : Colors.blue[50],
+                                  foregroundColor: _alarmTriggered
+                                      ? Colors.white
+                                      : Colors.blue[600],
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: Text(
+                                  _alarmTriggered ? 'Finish' : 'View Map',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Quick Tip Card
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _alarmTriggered ? Colors.green[50] : Colors.blue[50],
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _alarmTriggered ? Colors.green[200]! : Colors.blue[200]!,
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    _alarmTriggered ? Icons.check_circle_outline : Icons.info_outline,
+                    color: _alarmTriggered ? Colors.green[700] : Colors.blue[700],
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _alarmTriggered ? 'Congratulations!' : 'Tracking Active',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: _alarmTriggered ? Colors.green[900] : Colors.blue[900],
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _alarmTriggered
+                              ? 'You\'ve reached your destination. Tap "Finish" to complete the alarm.'
+                              : 'Your location is being monitored. You\'ll be alerted when you enter the geofence area.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _alarmTriggered ? Colors.green[700] : Colors.blue[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 15,
-            color: Colors.grey[900],
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
