@@ -36,12 +36,9 @@ class GooglePlacesService {
     if (latitude != null && longitude != null) {
       body['locationBias'] = {
         'circle': {
-          'center': {
-            'latitude': latitude,
-            'longitude': longitude,
-          },
+          'center': {'latitude': latitude, 'longitude': longitude},
           'radius': radiusMeters ?? 50000, // Default 50km
-        }
+        },
       };
     }
 
@@ -51,7 +48,8 @@ class GooglePlacesService {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.text',
+          'X-Goog-FieldMask':
+              'suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.text',
         },
         body: jsonEncode(body),
       );
@@ -86,7 +84,8 @@ class GooglePlacesService {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'id,displayName,formattedAddress,location,types,rating,userRatingCount,viewport',
+          'X-Goog-FieldMask':
+              'id,displayName,formattedAddress,location,types,rating,userRatingCount,viewport',
           if (sessionToken != null) 'X-Goog-Session-Token': sessionToken,
           if (languageCode != null) 'X-Goog-Language-Code': languageCode,
         },
@@ -122,12 +121,9 @@ class GooglePlacesService {
     final body = <String, dynamic>{
       'locationRestriction': {
         'circle': {
-          'center': {
-            'latitude': latitude,
-            'longitude': longitude,
-          },
+          'center': {'latitude': latitude, 'longitude': longitude},
           'radius': radiusMeters,
-        }
+        },
       },
       'maxResultCount': maxResultCount,
       if (languageCode != null) 'languageCode': languageCode,
@@ -141,7 +137,8 @@ class GooglePlacesService {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount',
+          'X-Goog-FieldMask':
+              'places.id,places.displayName,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount',
         },
         body: jsonEncode(body),
       );
@@ -152,6 +149,53 @@ class GooglePlacesService {
       } else {
         throw PlacesApiException(
           'Nearby Search failed: ${response.statusCode} - ${response.body}',
+          response.statusCode,
+        );
+      }
+    } catch (e) {
+      if (e is PlacesApiException) rethrow;
+      throw PlacesApiException('Network error: $e', 0);
+    }
+  }
+
+  /// Reverse Geocode - Convert latitude/longitude to human-readable address
+  /// https://developers.google.com/maps/documentation/places/web-service/reverse-geocode
+  Future<String?> reverseGeocode({
+    required double lat,
+    required double lng,
+    String? languageCode = 'en',
+  }) async {
+    final url = Uri.parse('$_baseUrl/places:reverseGeocode');
+
+    final body = {
+      'latlng': {'latitude': lat, 'longitude': lng},
+    };
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': apiKey,
+          'X-Goog-FieldMask': 'places.formattedAddress,places.displayName',
+          if (languageCode != null) 'X-Goog-Language-Code': languageCode,
+        },
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final places = data['places'] as List<dynamic>?;
+
+        if (places != null && places.isNotEmpty) {
+          final first = places.first as Map<String, dynamic>;
+          return first['formattedAddress'] as String? ??
+              (first['displayName']?['text'] as String?);
+        }
+        return null;
+      } else {
+        throw PlacesApiException(
+          'Reverse Geocode failed: ${response.statusCode} - ${response.body}',
           response.statusCode,
         );
       }
@@ -184,7 +228,9 @@ class AutocompleteResponse {
     final suggestionsJson = json['suggestions'] as List<dynamic>? ?? [];
     return AutocompleteResponse(
       suggestions: suggestionsJson
-          .map((s) => AutocompleteSuggestion.fromJson(s as Map<String, dynamic>))
+          .map(
+            (s) => AutocompleteSuggestion.fromJson(s as Map<String, dynamic>),
+          )
           .toList(),
     );
   }
@@ -198,7 +244,9 @@ class AutocompleteSuggestion {
   factory AutocompleteSuggestion.fromJson(Map<String, dynamic> json) {
     return AutocompleteSuggestion(
       placePrediction: json['placePrediction'] != null
-          ? PlacePrediction.fromJson(json['placePrediction'] as Map<String, dynamic>)
+          ? PlacePrediction.fromJson(
+              json['placePrediction'] as Map<String, dynamic>,
+            )
           : null,
     );
   }
@@ -209,11 +257,7 @@ class PlacePrediction {
   final PlaceText? text;
   final StructuredFormat? structuredFormat;
 
-  PlacePrediction({
-    required this.placeId,
-    this.text,
-    this.structuredFormat,
-  });
+  PlacePrediction({required this.placeId, this.text, this.structuredFormat});
 
   factory PlacePrediction.fromJson(Map<String, dynamic> json) {
     return PlacePrediction(
@@ -222,7 +266,9 @@ class PlacePrediction {
           ? PlaceText.fromJson(json['text'] as Map<String, dynamic>)
           : null,
       structuredFormat: json['structuredFormat'] != null
-          ? StructuredFormat.fromJson(json['structuredFormat'] as Map<String, dynamic>)
+          ? StructuredFormat.fromJson(
+              json['structuredFormat'] as Map<String, dynamic>,
+            )
           : null,
     );
   }
@@ -234,9 +280,7 @@ class PlaceText {
   PlaceText({required this.text});
 
   factory PlaceText.fromJson(Map<String, dynamic> json) {
-    return PlaceText(
-      text: json['text'] as String? ?? '',
-    );
+    return PlaceText(text: json['text'] as String? ?? '');
   }
 }
 

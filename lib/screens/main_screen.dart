@@ -77,7 +77,9 @@ class _MainScreenState extends State<MainScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Storage not initialized. Alarms will not be saved.'),
+              content: Text(
+                'Storage not initialized. Alarms will not be saved.',
+              ),
               backgroundColor: Colors.orange,
               duration: Duration(seconds: 3),
             ),
@@ -242,11 +244,7 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     // Show loading indicator while loading alarms
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     final screens = [
@@ -268,10 +266,7 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.notifications),
             label: 'Alarms',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.map),
-            label: 'Map',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings),
             label: 'Settings',
