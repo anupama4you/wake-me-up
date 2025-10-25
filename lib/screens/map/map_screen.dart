@@ -9,6 +9,7 @@ import '../../services/location_service.dart';
 import '../../services/google_places_service.dart';
 import '../../services/geofence_service.dart';
 import '../../services/alarm_storage_service.dart';
+import '../../theme/app_theme.dart';
 
 class MapScreen extends StatefulWidget {
   final Alarm? existingAlarm;
@@ -24,6 +25,7 @@ class _MapScreenState extends State<MapScreen> {
   final TextEditingController _searchController = TextEditingController();
   final DraggableScrollableController _sheetController =
       DraggableScrollableController();
+  final GlobalKey _mapKey = GlobalKey();
 
   // Location state
   LatLng? _selectedLocation;
@@ -37,6 +39,7 @@ class _MapScreenState extends State<MapScreen> {
   Timer? _debounceTimer;
   List<PlacePrediction> _predictions = [];
   bool _showPredictions = false;
+  bool _isLoadingSuggestions = false;
   String? _sessionToken;
 
   // Alarm settings
@@ -60,6 +63,7 @@ class _MapScreenState extends State<MapScreen> {
       _selectedLocation = LatLng(alarm.latitude, alarm.longitude);
       _triggerRadius = alarm.radius;
       _soundLevel = alarm.soundLevel;
+      // Don't call _updateMapMarkers here - map controller isn't ready yet
     }
 
     _requestPermissionAndLocation();
@@ -86,6 +90,15 @@ class _MapScreenState extends State<MapScreen> {
     return '${randomHex(8)}-${randomHex(4)}-4${randomHex(3)}-${randomHex(4)}-${randomHex(12)}';
   }
 
+  /// Calculate an offset position to show the pin towards the top of the visible map area
+  /// This accounts for the bottom sheet covering part of the map
+  LatLng _getOffsetPosition(LatLng target) {
+    // Offset the latitude by approximately 0.0045 degrees (~500 meters south)
+    // This moves the camera center down moderately, positioning the pin in the upper-middle area
+    // The bottom sheet at 25% height requires careful balance - too much offset pushes pin off screen
+    return LatLng(target.latitude - 0.0045, target.longitude);
+  }
+
   Future<void> _requestPermissionAndLocation() async {
     final hasPermission = await LocationService.requestPermission();
     if (!hasPermission) {
@@ -101,16 +114,22 @@ class _MapScreenState extends State<MapScreen> {
       final currentLoc = LatLng(position.latitude, position.longitude);
       setState(() {
         _currentLocation = currentLoc;
+        // Only set selected location to current location if this is a new alarm
         if (widget.existingAlarm == null && _selectedLocation == null) {
           _selectedLocation = currentLoc;
         }
-        _updateMapMarkers();
       });
 
-      if (_mapController != null && _selectedLocation != null) {
-        _mapController!.animateCamera(
-          CameraUpdate.newLatLngZoom(_selectedLocation!, 15),
-        );
+      // Update markers if map controller is ready
+      if (_mapController != null) {
+        _updateMapMarkers();
+
+        // Only animate camera if we just set the location to current location
+        if (widget.existingAlarm == null && _selectedLocation != null) {
+          _mapController!.animateCamera(
+            CameraUpdate.newLatLngZoom(_getOffsetPosition(_selectedLocation!), 13.5),
+          );
+        }
       }
     }
   }
@@ -145,9 +164,9 @@ class _MapScreenState extends State<MapScreen> {
           circleId: const CircleId('geofence'),
           center: _selectedLocation!,
           radius: _triggerRadius,
-          fillColor: Colors.blue.withValues(alpha: 0.1),
-          strokeColor: Colors.blue,
-          strokeWidth: 2,
+          fillColor: AppTheme.primaryColor.withValues(alpha: 0.15),
+          strokeColor: AppTheme.primaryColor,
+          strokeWidth: 3,
         ),
       );
     }
@@ -174,11 +193,18 @@ class _MapScreenState extends State<MapScreen> {
       setState(() {
         _predictions = [];
         _showPredictions = false;
+        _isLoadingSuggestions = false;
       });
       return;
     }
 
     _sessionToken ??= _generateSessionToken();
+
+    // Show loading indicator
+    setState(() {
+      _isLoadingSuggestions = true;
+      _showPredictions = true;
+    });
 
     _debounceTimer = Timer(_debounce, () async {
       try {
@@ -217,9 +243,15 @@ class _MapScreenState extends State<MapScreen> {
         setState(() {
           _predictions = preds;
           _showPredictions = preds.isNotEmpty;
+          _isLoadingSuggestions = false;
         });
       } catch (e) {
         debugPrint('Error fetching predictions: $e');
+        if (mounted) {
+          setState(() {
+            _isLoadingSuggestions = false;
+          });
+        }
       }
     });
   }
@@ -320,7 +352,7 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(currentLoc, 15));
+    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_getOffsetPosition(currentLoc), 13.5));
   }
 
   Future<void> _saveAlarm(bool activate) async {
@@ -361,7 +393,7 @@ class _MapScreenState extends State<MapScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(activate ? 'Alarm activated!' : 'Alarm saved for later'),
-        backgroundColor: activate ? Colors.green : Colors.blue,
+        backgroundColor: activate ? AppTheme.accentGreen : AppTheme.primaryColor,
       ),
     );
 
@@ -374,20 +406,19 @@ class _MapScreenState extends State<MapScreen> {
       appBar: AppBar(
         title: Text(
           widget.existingAlarm != null ? 'Edit Alarm' : 'Set Location',
-          style: const TextStyle(
-            color: Colors.black87,
-            fontWeight: FontWeight.w600,
+          style: AppTheme.headingLarge.copyWith(
+            color: AppTheme.textPrimaryColor,
           ),
         ),
-        backgroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.black87),
+        backgroundColor: AppTheme.surfaceColor,
+        iconTheme: const IconThemeData(color: AppTheme.textPrimaryColor),
         elevation: 0,
         actions: [
           // Pin mode toggle
           IconButton(
             icon: Icon(
               _pinModeActive ? Icons.push_pin : Icons.push_pin_outlined,
-              color: _pinModeActive ? Colors.blue[700] : Colors.grey[700],
+              color: _pinModeActive ? AppTheme.primaryColor : AppTheme.textSecondaryColor,
             ),
             tooltip: _pinModeActive
                 ? 'Pin mode active - Tap map to place'
@@ -414,17 +445,23 @@ class _MapScreenState extends State<MapScreen> {
         children: [
           // Map
           GoogleMap(
+            key: _mapKey,
             onMapCreated: (controller) {
               _mapController = controller;
+              // Update markers when map is ready
+              _updateMapMarkers();
+              // Animate to selected location after a brief delay to ensure map is fully initialized
               if (_selectedLocation != null) {
-                controller.animateCamera(
-                  CameraUpdate.newLatLngZoom(_selectedLocation!, 15),
-                );
+                Future.delayed(const Duration(milliseconds: 100), () {
+                  controller.animateCamera(
+                    CameraUpdate.newLatLngZoom(_getOffsetPosition(_selectedLocation!), 13.5),
+                  );
+                });
               }
             },
             initialCameraPosition: CameraPosition(
               target: _selectedLocation ?? const LatLng(-33.8688, 151.2093),
-              zoom: 15,
+              zoom: 13.5,
             ),
             markers: _markers,
             circles: _circles,
@@ -447,29 +484,32 @@ class _MapScreenState extends State<MapScreen> {
                     // Search box
                     Container(
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        color: AppTheme.surfaceColor,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),
                       child: TextField(
                         controller: _searchController,
                         onChanged: _onSearchChanged,
+                        style: AppTheme.bodyMedium,
                         decoration: InputDecoration(
                           hintText: 'Search location or enter address...',
-                          hintStyle: TextStyle(color: Colors.grey[400]),
-                          prefixIcon: Icon(
+                          hintStyle: AppTheme.bodyMedium.copyWith(
+                            color: AppTheme.textDisabledColor,
+                          ),
+                          prefixIcon: const Icon(
                             Icons.search,
-                            color: Colors.grey[600],
+                            color: AppTheme.primaryColor,
                           ),
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
+                            horizontal: AppTheme.paddingMedium,
                             vertical: 14,
                           ),
                         ),
@@ -477,63 +517,77 @@ class _MapScreenState extends State<MapScreen> {
                     ),
 
                     // Predictions dropdown
-                    if (_showPredictions && _predictions.isNotEmpty)
+                    if (_showPredictions)
                       Container(
-                        margin: const EdgeInsets.only(top: 8),
+                        margin: const EdgeInsets.only(top: AppTheme.paddingSmall),
                         decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
+                          color: AppTheme.surfaceColor,
+                          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.1),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
+                              color: Colors.black.withValues(alpha: 0.15),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
                             ),
                           ],
                         ),
                         constraints: const BoxConstraints(maxHeight: 250),
-                        child: ListView.separated(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          shrinkWrap: true,
-                          itemCount: _predictions.length,
-                          separatorBuilder: (context, index) =>
-                              Divider(height: 1, color: Colors.grey[200]),
-                          itemBuilder: (context, index) {
-                            final prediction = _predictions[index];
-                            return ListTile(
-                              leading: Icon(
-                                Icons.location_on,
-                                color: Colors.grey[600],
-                              ),
-                              title: Text(
-                                prediction.structuredFormat?.mainText?.text ??
-                                    prediction.text?.text ??
-                                    '',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w500,
+                        child: _isLoadingSuggestions
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(AppTheme.paddingLarge),
+                                  child: CircularProgressIndicator(
+                                    color: AppTheme.primaryColor,
+                                  ),
                                 ),
-                              ),
-                              subtitle:
-                                  prediction
-                                          .structuredFormat
-                                          ?.secondaryText
-                                          ?.text !=
-                                      null
-                                  ? Text(
-                                      prediction
-                                          .structuredFormat!
-                                          .secondaryText!
-                                          .text,
-                                      style: TextStyle(
-                                        color: Colors.grey[600],
-                                        fontSize: 13,
+                              )
+                            : _predictions.isEmpty
+                                ? const Padding(
+                                    padding: EdgeInsets.all(AppTheme.paddingLarge),
+                                    child: Center(
+                                      child: Text(
+                                        'No locations found',
+                                        style: AppTheme.bodyMedium,
                                       ),
-                                    )
-                                  : null,
-                              onTap: () => _onPredictionTapped(prediction),
-                            );
-                          },
-                        ),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    padding: const EdgeInsets.symmetric(vertical: AppTheme.paddingSmall),
+                                    shrinkWrap: true,
+                                    itemCount: _predictions.length,
+                                    separatorBuilder: (context, index) =>
+                                        const Divider(height: 1, color: AppTheme.borderLightColor),
+                                    itemBuilder: (context, index) {
+                                      final prediction = _predictions[index];
+                                      return ListTile(
+                                        leading: const Icon(
+                                          Icons.location_on,
+                                          color: AppTheme.primaryColor,
+                                        ),
+                                        title: Text(
+                                          prediction.structuredFormat?.mainText?.text ??
+                                              prediction.text?.text ??
+                                              '',
+                                          style: AppTheme.labelLarge,
+                                        ),
+                                        subtitle:
+                                            prediction
+                                                    .structuredFormat
+                                                    ?.secondaryText
+                                                    ?.text !=
+                                                null
+                                            ? Text(
+                                                prediction
+                                                    .structuredFormat!
+                                                    .secondaryText!
+                                                    .text,
+                                                style: AppTheme.bodySmall,
+                                              )
+                                            : null,
+                                        onTap: () => _onPredictionTapped(prediction),
+                                      );
+                                    },
+                                  ),
                       ),
                   ],
                 ),
@@ -541,36 +595,64 @@ class _MapScreenState extends State<MapScreen> {
             ),
           ),
 
-          // My Location button
+          // Map control buttons (My Location, Zoom In, Zoom Out)
           Positioned(
             top: 80,
             right: 16,
-            child: FloatingActionButton(
-              mini: true,
-              backgroundColor: Colors.white,
-              onPressed: _goToCurrentLocation,
-              child: Icon(Icons.my_location, color: Colors.blue[700]),
+            child: Column(
+              children: [
+                // My Location button
+                FloatingActionButton(
+                  mini: true,
+                  heroTag: 'myLocation',
+                  backgroundColor: AppTheme.surfaceColor,
+                  onPressed: _goToCurrentLocation,
+                  child: const Icon(Icons.my_location, color: AppTheme.primaryColor),
+                ),
+                const SizedBox(height: 8),
+                // Zoom In button
+                FloatingActionButton(
+                  mini: true,
+                  heroTag: 'zoomIn',
+                  backgroundColor: AppTheme.surfaceColor,
+                  onPressed: () {
+                    _mapController?.animateCamera(CameraUpdate.zoomIn());
+                  },
+                  child: const Icon(Icons.add, color: AppTheme.primaryColor),
+                ),
+                const SizedBox(height: 8),
+                // Zoom Out button
+                FloatingActionButton(
+                  mini: true,
+                  heroTag: 'zoomOut',
+                  backgroundColor: AppTheme.surfaceColor,
+                  onPressed: () {
+                    _mapController?.animateCamera(CameraUpdate.zoomOut());
+                  },
+                  child: const Icon(Icons.remove, color: AppTheme.primaryColor),
+                ),
+              ],
             ),
           ),
 
           // Bottom sheet with alarm settings
           DraggableScrollableSheet(
             controller: _sheetController,
-            initialChildSize: 0.5,
-            minChildSize: 0.12,
+            initialChildSize: 0.25,
+            minChildSize: 0.1,
             maxChildSize: 0.75,
             snap: true,
-            snapSizes: const [0.12, 0.5],
+            snapSizes: const [0.1, 0.25, 0.5, 0.75],
             builder: (context, scrollController) {
               return Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceColor,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(AppTheme.radiusXLarge)),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 10,
-                      offset: Offset(0, -2),
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 16,
+                      offset: const Offset(0, -4),
                     ),
                   ],
                 ),
@@ -580,9 +662,9 @@ class _MapScreenState extends State<MapScreen> {
                     Container(
                       width: 40,
                       height: 4,
-                      margin: const EdgeInsets.only(top: 12, bottom: 12),
+                      margin: const EdgeInsets.only(top: AppTheme.paddingMedium, bottom: AppTheme.paddingMedium),
                       decoration: BoxDecoration(
-                        color: Colors.grey[300],
+                        color: AppTheme.borderColor,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -596,32 +678,37 @@ class _MapScreenState extends State<MapScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             // Title
-                            const Text(
+                            Text(
                               'Alarm Settings',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
+                              style: AppTheme.headingLarge,
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: AppTheme.paddingLarge),
 
                             // Trigger Radius
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text(
+                                Text(
                                   'Trigger Radius',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w500,
+                                  style: AppTheme.bodyMedium.copyWith(
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                Text(
-                                  '${_triggerRadius.toInt()}m',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.blue[700],
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: AppTheme.paddingMedium,
+                                    vertical: AppTheme.paddingSmall,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                                  ),
+                                  child: Text(
+                                    '${_triggerRadius.toInt()}m',
+                                    style: AppTheme.labelLarge.copyWith(
+                                      color: AppTheme.primaryColor,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -631,7 +718,8 @@ class _MapScreenState extends State<MapScreen> {
                               min: 100,
                               max: 2000,
                               divisions: 19,
-                              activeColor: Colors.blue[600],
+                              activeColor: AppTheme.primaryColor,
+                              inactiveColor: AppTheme.borderLightColor,
                               onChanged: (value) {
                                 setState(() {
                                   _triggerRadius = value;
@@ -644,28 +732,21 @@ class _MapScreenState extends State<MapScreen> {
                               children: [
                                 Text(
                                   '100m',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
+                                  style: AppTheme.caption,
                                 ),
                                 Text(
                                   '2km',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey[600],
-                                  ),
+                                  style: AppTheme.caption,
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: AppTheme.paddingLarge),
 
                             // Alarm Sound
-                            const Text(
+                            Text(
                               'Alarm Sound',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w500,
+                              style: AppTheme.bodyMedium.copyWith(
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -688,26 +769,24 @@ class _MapScreenState extends State<MapScreen> {
                                     onPressed: () => _saveAlarm(false),
                                     style: OutlinedButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(
-                                        vertical: 16,
+                                        vertical: AppTheme.paddingMedium,
                                       ),
-                                      side: BorderSide(
-                                        color: Colors.grey[300]!,
+                                      side: const BorderSide(
+                                        color: AppTheme.borderColor,
                                       ),
                                       shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
                                       ),
                                     ),
                                     child: Text(
                                       'Save for Later',
-                                      style: TextStyle(
-                                        color: Colors.grey[700],
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
+                                      style: AppTheme.buttonMedium.copyWith(
+                                        color: AppTheme.textSecondaryColor,
                                       ),
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 12),
+                                const SizedBox(width: AppTheme.paddingMedium),
                                 Expanded(
                                   flex: 2,
                                   child: ElevatedButton(
@@ -716,20 +795,19 @@ class _MapScreenState extends State<MapScreen> {
                                         : null,
                                     style: ElevatedButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(
-                                        vertical: 16,
+                                        vertical: AppTheme.paddingMedium,
                                       ),
-                                      backgroundColor: Colors.blue[600],
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
+                                      backgroundColor: AppTheme.accentGreen,
+                                      foregroundColor: AppTheme.textOnPrimaryColor,
+                                      elevation: 2,
                                       shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
                                       ),
                                     ),
-                                    child: const Text(
+                                    child: Text(
                                       'Start Alarm',
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
+                                      style: AppTheme.buttonMedium.copyWith(
+                                        color: AppTheme.textOnPrimaryColor,
                                       ),
                                     ),
                                   ),
@@ -755,22 +833,23 @@ class _MapScreenState extends State<MapScreen> {
     return GestureDetector(
       onTap: () => setState(() => _soundLevel = level),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(vertical: AppTheme.paddingMedium),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.blue[50] : Colors.grey[100],
-          borderRadius: BorderRadius.circular(8),
+          color: isSelected
+              ? AppTheme.primaryColor.withValues(alpha: 0.1)
+              : AppTheme.borderLightColor,
+          borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
           border: Border.all(
-            color: isSelected ? Colors.blue[600]! : Colors.transparent,
+            color: isSelected ? AppTheme.primaryColor : Colors.transparent,
             width: 2,
           ),
         ),
         child: Text(
           level,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: isSelected ? Colors.blue[700] : Colors.grey[700],
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-            fontSize: 14,
+          style: AppTheme.labelMedium.copyWith(
+            color: isSelected ? AppTheme.primaryColor : AppTheme.textSecondaryColor,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
           ),
         ),
       ),

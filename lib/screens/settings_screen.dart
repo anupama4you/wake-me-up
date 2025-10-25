@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -17,11 +18,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Settings', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.blue[600],
+        title: const Text('Settings', style: TextStyle(color: AppTheme.textOnPrimaryColor)),
+        backgroundColor: AppTheme.primaryColor,
       ),
       body: Container(
-        color: Colors.grey[50],
+        color: AppTheme.backgroundColor,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -29,11 +30,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildSettingsCard([
               _buildSettingRow('Default Radius',
                   trailing:
-                  Text('500m', style: TextStyle(color: Colors.grey[600]))),
+                  Text('500m', style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor))),
               const Divider(height: 1),
               _buildSettingRow('Default Alarm Sound',
                   trailing:
-                  Text('Loud', style: TextStyle(color: Colors.grey[600]))),
+                  Text('Loud', style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor))),
               const Divider(height: 1),
               _buildSettingRow(
                 'Vibration',
@@ -57,7 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Divider(height: 1),
               _buildSettingRow('Update Interval',
                   trailing:
-                  Text('30 sec', style: TextStyle(color: Colors.grey[600]))),
+                  Text('30 sec', style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor))),
             ]),
             const SizedBox(height: 24),
             _buildSectionTitle('NOTIFICATIONS'),
@@ -83,7 +84,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildSettingsCard([
               _buildSettingRow('Version',
                   trailing:
-                  Text('1.0.0', style: TextStyle(color: Colors.grey[600]))),
+                  Text('1.0.0', style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor))),
               const Divider(height: 1),
               _buildSettingRow('Privacy Policy'),
               const Divider(height: 1),
@@ -97,14 +98,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildSectionTitle(String title) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8, left: 4),
+      padding: const EdgeInsets.only(bottom: AppTheme.paddingSmall, left: 4),
       child: Text(
         title,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          color: Colors.grey[600],
-          letterSpacing: 1.2,
+        style: AppTheme.labelSmall.copyWith(
+          color: AppTheme.textSecondaryColor,
         ),
       ),
     );
@@ -113,10 +111,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildSettingsCard(List<Widget> children) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: AppTheme.cardColor,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+          ),
         ],
       ),
       child: Column(children: children),

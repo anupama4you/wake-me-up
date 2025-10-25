@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import '../models/alarm.dart';
-// import '../widgets/alarm_card.dart'; // No longer needed
-import 'active_alarm_screen.dart';
+import '../theme/app_theme.dart';
 import 'map_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   final List<Alarm> alarms;
   final Function(String, bool) onToggleAlarm;
   final Function(String) onDeleteAlarm;
@@ -19,30 +18,221 @@ class HomeScreen extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _isEditMode = false;
+
+  /// Show battery warning dialog when enabling multiple alarms
+  Future<bool?> _showBatteryWarning(BuildContext context, int totalActive) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.battery_alert, color: AppTheme.warningColor, size: 28),
+            const SizedBox(width: 12),
+            const Text('Battery Usage Warning'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'You are about to enable $totalActive active alarms.',
+              style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: AppTheme.paddingMedium),
+            Text(
+              'Multiple active alarms will:',
+              style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor),
+            ),
+            const SizedBox(height: 8),
+            _buildWarningPoint(Icons.battery_charging_full, 'Increase battery usage'),
+            _buildWarningPoint(Icons.location_on, 'Track your location continuously'),
+            _buildWarningPoint(Icons.gps_fixed, 'Check GPS every 10 seconds'),
+            const SizedBox(height: AppTheme.paddingMedium),
+            Container(
+              padding: const EdgeInsets.all(AppTheme.paddingMedium),
+              decoration: BoxDecoration(
+                color: AppTheme.infoColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+                border: Border.all(color: AppTheme.infoColor.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.tips_and_updates, color: AppTheme.infoColor, size: 20),
+                  const SizedBox(width: AppTheme.paddingSmall),
+                  Expanded(
+                    child: Text(
+                      'Tip: Disable alarms when not needed to save battery',
+                      style: AppTheme.labelMedium.copyWith(
+                        color: AppTheme.infoColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.warningColor,
+              foregroundColor: AppTheme.textOnPrimaryColor,
+            ),
+            child: const Text('Enable Anyway'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build warning point widget
+  Widget _buildWarningPoint(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(left: AppTheme.paddingSmall, bottom: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: AppTheme.iconSizeSmall, color: AppTheme.warningColor),
+          const SizedBox(width: AppTheme.paddingSmall),
+          Text(
+            text,
+            style: AppTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show maximum limit dialog
+  Future<void> _showMaxLimitDialog(BuildContext context) async {
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.warning, color: AppTheme.errorColor, size: 28),
+            const SizedBox(width: AppTheme.paddingMedium),
+            const Text('Maximum Limit Reached'),
+          ],
+        ),
+        content: Text(
+          'You can have a maximum of 10 active alarms at once.\n\n'
+          'Please disable some alarms before enabling new ones.',
+          style: AppTheme.bodyMedium,
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Count active alarms
+    final activeCount = widget.alarms.where((a) => a.isActive).length;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Alarms', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.blue[600],
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('WakeMeUp', style: TextStyle(color: AppTheme.textOnPrimaryColor, fontSize: 20)),
+            if (activeCount > 0)
+              Text(
+                '$activeCount active ${activeCount == 1 ? 'alarm' : 'alarms'}',
+                style: AppTheme.labelMedium.copyWith(
+                  color: AppTheme.textOnPrimaryColor.withValues(alpha: 0.9),
+                ),
+              ),
+          ],
+        ),
+        backgroundColor: AppTheme.primaryColor,
         elevation: 0,
+        leading: IconButton(
+          icon: Icon(
+            _isEditMode ? Icons.done : Icons.edit,
+            color: AppTheme.textOnPrimaryColor,
+          ),
+          onPressed: () {
+            setState(() {
+              _isEditMode = !_isEditMode;
+            });
+          },
+        ),
+        actions: [
+          // Show active alarm indicator badge
+          if (activeCount > 0)
+            Padding(
+              padding: const EdgeInsets.only(right: AppTheme.paddingSmall),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppTheme.paddingSmall + 2,
+                    vertical: AppTheme.paddingXSmall,
+                  ),
+                  decoration: AppTheme.badgeDecoration(),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.radio_button_checked,
+                        color: AppTheme.textOnPrimaryColor,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$activeCount',
+                        style: AppTheme.labelMedium.copyWith(
+                          color: AppTheme.textOnPrimaryColor,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.add, color: AppTheme.textOnPrimaryColor),
+            onPressed: widget.onAddAlarm,
+          ),
+        ],
       ),
       body: Container(
-        color: Colors.grey[50],
-        child: alarms.isEmpty
+        color: AppTheme.backgroundColor,
+        child: widget.alarms.isEmpty
             ? _EmptyState()
             : ListView.separated(
                 padding: const EdgeInsets.all(16),
-                itemCount: alarms.length,
+                itemCount: widget.alarms.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 12),
                 itemBuilder: (context, index) {
-                  final alarm = alarms[index];
+                  final alarm = widget.alarms[index];
                   return _DismissibleAlarmCard(
                     alarm: alarm,
-                    onDelete: () => onDeleteAlarm(alarm.id),
+                    onDelete: () => widget.onDeleteAlarm(alarm.id),
                     child: _AlarmCard(
                       alarm: alarm,
-                      onTap: () async {
-                        // Edit flow
+                      isEditMode: _isEditMode,
+                      onTap: () {
+                        // Card tap disabled in normal mode - no action
+                      },
+                      onEdit: () async {
+                        // Navigate to edit screen
                         final result = await Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -50,7 +240,7 @@ class HomeScreen extends StatelessWidget {
                                 MapScreen(existingAlarm: alarm),
                           ),
                         );
-                        if (result != null && result is Map) {
+                        if (result != null && result is Map && mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text('Alarm updated successfully'),
@@ -62,22 +252,41 @@ class HomeScreen extends StatelessWidget {
                       onToggle: (active) async {
                         // If we're turning ON an inactive alarm:
                         if (active && !alarm.isActive) {
-                          onToggleAlarm(alarm.id, true);
+                          // Count currently active alarms
+                          final activeCount = widget.alarms
+                              .where((a) => a.isActive && a.id != alarm.id)
+                              .length;
+
+                          // Check maximum limit first (10 active alarms)
+                          if (activeCount >= 10) {
+                            await _showMaxLimitDialog(context);
+                            return;
+                          }
+
+                          // Show battery warning if enabling 2nd or more alarm
+                          if (activeCount >= 1) {
+                            final shouldEnable = await _showBatteryWarning(
+                              context,
+                              activeCount + 1,
+                            );
+                            if (shouldEnable == true) {
+                              widget.onToggleAlarm(alarm.id, true);
+                            }
+                            return;
+                          }
+
+                          // First alarm - no warning needed
+                          widget.onToggleAlarm(alarm.id, true);
                           return;
                         }
 
                         // Otherwise just forward the toggle
-                        onToggleAlarm(alarm.id, active);
+                        widget.onToggleAlarm(alarm.id, active);
                       },
                     ),
                   );
                 },
               ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: onAddAlarm,
-        backgroundColor: Colors.blue[600],
-        child: const Icon(Icons.add),
       ),
     );
   }
@@ -92,20 +301,20 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.alarm_off, size: 100, color: Colors.grey[300]),
-          const SizedBox(height: 16),
+          Icon(Icons.alarm_off, size: 100, color: AppTheme.borderColor),
+          const SizedBox(height: AppTheme.paddingMedium),
           Text(
             'No Alarms Yet',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[600],
+            style: AppTheme.displaySmall.copyWith(
+              color: AppTheme.textSecondaryColor,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppTheme.paddingSmall),
           Text(
             'Tap the + button to create your first alarm',
-            style: TextStyle(color: Colors.grey[400]),
+            style: AppTheme.bodyMedium.copyWith(
+              color: AppTheme.textDisabledColor,
+            ),
           ),
         ],
       ),
@@ -168,20 +377,19 @@ class _DismissibleAlarmCard extends StatelessWidget {
       },
       background: Container(
         decoration: BoxDecoration(
-          color: Colors.red[50],
-          borderRadius: BorderRadius.circular(16),
+          color: AppTheme.errorColor.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: AppTheme.paddingMedium),
         alignment: Alignment.centerLeft,
         child: Row(
           children: [
-            Icon(Icons.delete, color: Colors.red[700]),
-            const SizedBox(width: 8),
+            const Icon(Icons.delete, color: AppTheme.errorColor),
+            const SizedBox(width: AppTheme.paddingSmall),
             Text(
               'Delete',
-              style: TextStyle(
-                color: Colors.red[700],
-                fontWeight: FontWeight.bold,
+              style: AppTheme.labelLarge.copyWith(
+                color: AppTheme.errorColor,
               ),
             ),
           ],
@@ -197,39 +405,34 @@ class _DismissibleAlarmCard extends StatelessWidget {
 class _AlarmCard extends StatelessWidget {
   final Alarm alarm;
   final VoidCallback onTap;
+  final VoidCallback onEdit;
   final ValueChanged<bool> onToggle;
+  final bool isEditMode;
 
   const _AlarmCard({
     Key? key,
     required this.alarm,
     required this.onTap,
+    required this.onEdit,
     required this.onToggle,
+    required this.isEditMode,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final cardColor = Colors.white;
-    final border = Border.all(color: Colors.grey.shade200);
+    // Modern styling for active vs inactive cards
+    final bool isActive = alarm.isActive;
 
     return Material(
-      color: cardColor,
-      borderRadius: BorderRadius.circular(16),
+      color: isActive ? null : AppTheme.cardColor,
+      borderRadius: BorderRadius.circular(AppTheme.radiusXLarge),
+      elevation: isActive ? AppTheme.elevationMedium : AppTheme.elevationNone,
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppTheme.radiusXLarge),
+        onTap: isEditMode ? onEdit : onTap,
         child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: border,
-            boxShadow: [
-              BoxShadow(
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-                color: Colors.black.withOpacity(0.04),
-              ),
-            ],
-          ),
+          padding: const EdgeInsets.all(AppTheme.paddingMedium),
+          decoration: AppTheme.alarmCardDecoration(isActive: isActive),
           child: Row(
             children: [
               // Animated pin with pulsing radius
@@ -241,7 +444,7 @@ class _AlarmCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Top row: Location name | switch
+                    // Top row: Location name | switch or edit button
                     Row(
                       children: [
                         Expanded(
@@ -249,36 +452,44 @@ class _AlarmCard extends StatelessWidget {
                             alarm.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.grey.shade900,
+                            style: AppTheme.headingMedium.copyWith(
+                              color: AppTheme.getTextColor(isActive: isActive),
                             ),
                           ),
                         ),
-                        // "Slider" to activate/deactivate (adaptive switch)
-                        Switch.adaptive(
-                          value: alarm.isActive,
-                          onChanged: onToggle,
-                          activeColor: Colors.white,
-                          activeTrackColor: Colors.green.shade600,
-                          inactiveThumbColor: Colors.white,
-                          inactiveTrackColor: Colors.grey.shade400,
-                        ),
+                        // Show edit button in edit mode, switch otherwise
+                        if (isEditMode)
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: AppTheme.primaryColor),
+                            onPressed: onEdit,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          )
+                        else
+                          Switch.adaptive(
+                            value: alarm.isActive,
+                            onChanged: onToggle,
+                            activeThumbColor: AppTheme.textOnPrimaryColor,
+                            activeTrackColor: AppTheme.accentGreen,
+                            inactiveThumbColor: AppTheme.textOnPrimaryColor,
+                            inactiveTrackColor: AppTheme.borderColor,
+                          ),
                       ],
                     ),
 
-                    const SizedBox(height: 2),
+                    const SizedBox(height: AppTheme.paddingXSmall),
 
                     // Address
                     Text(
                       alarm.address ?? 'No address set',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: Colors.grey.shade600),
+                      style: AppTheme.bodySmall.copyWith(
+                        color: AppTheme.getTextColor(isActive: isActive, isSecondary: true),
+                      ),
                     ),
 
-                    const SizedBox(height: 8),
+                    const SizedBox(height: AppTheme.paddingSmall + 2),
 
                     // Bottom meta: radius | sound
                     Row(
@@ -286,11 +497,13 @@ class _AlarmCard extends StatelessWidget {
                         _MetaChip(
                           icon: Icons.radar,
                           label: '${alarm.radius?.toStringAsFixed(0) ?? '-'} m',
+                          isActive: isActive,
                         ),
                         const SizedBox(width: 8),
                         _MetaChip(
                           icon: Icons.volume_up,
                           label: alarm.soundLevel ?? 'Default',
+                          isActive: isActive,
                         ),
                       ],
                     ),
@@ -358,7 +571,7 @@ class _AnimatedLocationPinState extends State<_AnimatedLocationPin>
   }
 
   Color get _pinColor =>
-      widget.active ? Colors.green.shade600 : Colors.grey.shade500;
+      widget.active ? AppTheme.accentGreen : AppTheme.textSecondaryColor;
 
   @override
   Widget build(BuildContext context) {
@@ -380,8 +593,8 @@ class _AnimatedLocationPinState extends State<_AnimatedLocationPin>
                     child: Container(
                       width: 24,
                       height: 24,
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade400,
+                      decoration: const BoxDecoration(
+                        color: AppTheme.accentGreenLight,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -394,7 +607,7 @@ class _AnimatedLocationPinState extends State<_AnimatedLocationPin>
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: _pinColor.withOpacity(0.12),
+              color: _pinColor.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
             child: Icon(Icons.location_pin, color: _pinColor),
@@ -410,31 +623,36 @@ class _AnimatedLocationPinState extends State<_AnimatedLocationPin>
 class _MetaChip extends StatelessWidget {
   final IconData icon;
   final String label;
+  final bool isActive;
 
-  const _MetaChip({Key? key, required this.icon, required this.label})
-    : super(key: key);
+  const _MetaChip({
+    Key? key,
+    required this.icon,
+    required this.label,
+    this.isActive = false,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final border = BorderSide(color: Colors.grey.shade300);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.fromBorderSide(border),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppTheme.paddingSmall + 2,
+        vertical: 6,
       ),
+      decoration: AppTheme.chipDecoration(isActive: isActive),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: Colors.grey.shade700),
+          Icon(
+            icon,
+            size: 15,
+            color: AppTheme.getIconColor(isActive: isActive),
+          ),
           const SizedBox(width: 6),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade800,
-              fontWeight: FontWeight.w600,
+            style: AppTheme.labelMedium.copyWith(
+              color: AppTheme.getTextColor(isActive: isActive),
             ),
           ),
         ],

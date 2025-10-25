@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'dart:math';
 import '../models/alarm.dart';
+import '../theme/app_theme.dart';
 
 class MapViewScreen extends StatefulWidget {
   final List<Alarm> alarms;
@@ -56,7 +57,7 @@ class _MapViewScreenState extends State<MapViewScreen> {
             snippet: '${alarm.radius.toInt()}m • ${alarm.isActive ? "Active" : "Inactive"}',
           ),
           icon: BitmapDescriptor.defaultMarkerWithHue(
-            alarm.isActive ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
+            alarm.isActive ? BitmapDescriptor.hueCyan : BitmapDescriptor.hueRed,
           ),
           alpha: isSelected ? 1.0 : 0.8,
           onTap: () => _onMarkerTapped(alarm),
@@ -68,10 +69,9 @@ class _MapViewScreenState extends State<MapViewScreen> {
           circleId: CircleId(alarm.id),
           center: LatLng(alarm.latitude, alarm.longitude),
           radius: alarm.radius,
-          fillColor: (alarm.isActive ? Colors.green : Colors.grey).withOpacity(
-            isSelected ? 0.3 : 0.15,
-          ),
-          strokeColor: alarm.isActive ? Colors.green : Colors.grey,
+          fillColor: (alarm.isActive ? AppTheme.accentGreen : AppTheme.textSecondaryColor)
+              .withValues(alpha: isSelected ? 0.3 : 0.15),
+          strokeColor: alarm.isActive ? AppTheme.accentGreen : AppTheme.textSecondaryColor,
           strokeWidth: isSelected ? 3 : 2,
         ),
       );
@@ -166,20 +166,20 @@ class _MapViewScreenState extends State<MapViewScreen> {
     return GestureDetector(
       onTap: () => _zoomToAlarm(alarm),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 8),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.symmetric(horizontal: AppTheme.paddingSmall),
+        padding: const EdgeInsets.all(AppTheme.paddingMedium),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          color: AppTheme.cardColor,
+          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
           border: Border.all(
             color: isSelected
-                ? (alarm.isActive ? Colors.green : Colors.blue)
-                : Colors.grey[300]!,
+                ? (alarm.isActive ? AppTheme.accentGreen : AppTheme.primaryColor)
+                : AppTheme.borderColor,
             width: isSelected ? 2 : 1,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -191,35 +191,31 @@ class _MapViewScreenState extends State<MapViewScreen> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: (alarm.isActive ? Colors.green : Colors.grey)
-                    .withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
+                color: (alarm.isActive ? AppTheme.accentGreen : AppTheme.textSecondaryColor)
+                    .withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
               ),
               child: Icon(
                 alarm.isActive ? Icons.notifications_active : Icons.notifications_off,
-                color: alarm.isActive ? Colors.green[700] : Colors.grey[600],
+                color: alarm.isActive ? AppTheme.accentGreenDark : AppTheme.textSecondaryColor,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: AppTheme.paddingMedium),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     alarm.name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
+                    style: AppTheme.labelLarge,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Text(
                     '${alarm.radius.toInt()}m radius',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
+                    style: AppTheme.labelMedium.copyWith(
+                      color: AppTheme.textSecondaryColor,
                     ),
                   ),
                 ],
@@ -227,7 +223,7 @@ class _MapViewScreenState extends State<MapViewScreen> {
             ),
             Icon(
               Icons.location_on,
-              color: alarm.isActive ? Colors.green[600] : Colors.grey[400],
+              color: alarm.isActive ? AppTheme.accentGreen : AppTheme.textDisabledColor,
               size: 20,
             ),
           ],
@@ -253,10 +249,10 @@ class _MapViewScreenState extends State<MapViewScreen> {
           bottom: MediaQuery.of(context).padding.bottom,
         ),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.surfaceColor,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 10,
               offset: const Offset(0, -2),
             ),
@@ -273,10 +269,7 @@ class _MapViewScreenState extends State<MapViewScreen> {
                 children: [
                   Text(
                     '${alarms.length} Alarm${alarms.length != 1 ? 's' : ''}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
+                    style: AppTheme.labelLarge,
                   ),
                   if (alarms.length > 1)
                     TextButton.icon(
@@ -328,9 +321,14 @@ class _MapViewScreenState extends State<MapViewScreen> {
           },
           borderRadius: BorderRadius.circular(20),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppTheme.paddingMedium,
+              vertical: AppTheme.paddingSmall,
+            ),
             decoration: BoxDecoration(
-              color: _showActiveOnly ? Colors.green[50] : Colors.white,
+              color: _showActiveOnly
+                  ? AppTheme.accentGreen.withValues(alpha: 0.1)
+                  : AppTheme.surfaceColor,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Row(
@@ -339,15 +337,13 @@ class _MapViewScreenState extends State<MapViewScreen> {
                 Icon(
                   _showActiveOnly ? Icons.check_circle : Icons.filter_alt,
                   size: 18,
-                  color: _showActiveOnly ? Colors.green[700] : Colors.grey[700],
+                  color: _showActiveOnly ? AppTheme.accentGreenDark : AppTheme.textSecondaryColor,
                 ),
                 const SizedBox(width: 4),
                 Text(
                   _showActiveOnly ? 'Active Only' : 'All Alarms',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: _showActiveOnly ? Colors.green[700] : Colors.grey[700],
+                  style: AppTheme.labelMedium.copyWith(
+                    color: _showActiveOnly ? AppTheme.accentGreenDark : AppTheme.textSecondaryColor,
                   ),
                 ),
               ],
@@ -366,22 +362,22 @@ class _MapViewScreenState extends State<MapViewScreen> {
         children: [
           FloatingActionButton(
             mini: true,
-            backgroundColor: Colors.white,
+            backgroundColor: AppTheme.surfaceColor,
             heroTag: 'mapViewZoomIn',
             onPressed: () {
               _mapController?.animateCamera(CameraUpdate.zoomIn());
             },
-            child: const Icon(Icons.add, color: Colors.blue),
+            child: const Icon(Icons.add, color: AppTheme.primaryColor),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: AppTheme.paddingSmall),
           FloatingActionButton(
             mini: true,
-            backgroundColor: Colors.white,
+            backgroundColor: AppTheme.surfaceColor,
             heroTag: 'mapViewZoomOut',
             onPressed: () {
               _mapController?.animateCamera(CameraUpdate.zoomOut());
             },
-            child: const Icon(Icons.remove, color: Colors.blue),
+            child: const Icon(Icons.remove, color: AppTheme.primaryColor),
           ),
         ],
       ),
@@ -396,10 +392,10 @@ class _MapViewScreenState extends State<MapViewScreen> {
         elevation: 4,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(AppTheme.paddingMedium),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            color: AppTheme.surfaceColor,
+            borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -412,14 +408,14 @@ class _MapViewScreenState extends State<MapViewScreen> {
                     width: 12,
                     height: 12,
                     decoration: const BoxDecoration(
-                      color: Colors.green,
+                      color: AppTheme.accentGreen,
                       shape: BoxShape.circle,
                     ),
                   ),
                   const SizedBox(width: 6),
-                  const Text(
+                  Text(
                     'Active',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                    style: AppTheme.labelMedium,
                   ),
                 ],
               ),
@@ -431,14 +427,14 @@ class _MapViewScreenState extends State<MapViewScreen> {
                     width: 12,
                     height: 12,
                     decoration: const BoxDecoration(
-                      color: Colors.grey,
+                      color: AppTheme.textSecondaryColor,
                       shape: BoxShape.circle,
                     ),
                   ),
                   const SizedBox(width: 6),
-                  const Text(
+                  Text(
                     'Inactive',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                    style: AppTheme.labelMedium,
                   ),
                 ],
               ),
@@ -454,42 +450,34 @@ class _MapViewScreenState extends State<MapViewScreen> {
     if (widget.alarms.isEmpty) {
       return Scaffold(
         appBar: AppBar(
-          title: const Text('Map View', style: TextStyle(color: Colors.white)),
-          backgroundColor: Colors.blue[600],
-          iconTheme: const IconThemeData(color: Colors.white),
+          title: const Text('Map View', style: TextStyle(color: AppTheme.textOnPrimaryColor)),
+          backgroundColor: AppTheme.primaryColor,
+          iconTheme: const IconThemeData(color: AppTheme.textOnPrimaryColor),
         ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.map_outlined, size: 100, color: Colors.grey[300]),
-              const SizedBox(height: 16),
+              const Icon(Icons.map_outlined, size: 100, color: AppTheme.borderColor),
+              const SizedBox(height: AppTheme.paddingMedium),
               Text(
                 'No Alarms Yet',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey[600],
+                style: AppTheme.displaySmall.copyWith(
+                  color: AppTheme.textSecondaryColor,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: AppTheme.paddingSmall),
               Text(
                 'Create an alarm to see it on the map',
-                style: TextStyle(color: Colors.grey[400]),
+                style: AppTheme.bodyMedium.copyWith(
+                  color: AppTheme.textDisabledColor,
+                ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: AppTheme.paddingLarge),
               ElevatedButton.icon(
                 onPressed: () => Navigator.pop(context),
                 icon: const Icon(Icons.add_location_alt),
                 label: const Text('Create Alarm'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue[600],
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                ),
               ),
             ],
           ),
@@ -499,9 +487,9 @@ class _MapViewScreenState extends State<MapViewScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Map View', style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.blue[600],
-        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text('Map View', style: TextStyle(color: AppTheme.textOnPrimaryColor)),
+        backgroundColor: AppTheme.primaryColor,
+        iconTheme: const IconThemeData(color: AppTheme.textOnPrimaryColor),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),

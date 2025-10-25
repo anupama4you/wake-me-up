@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/main_screen.dart';
+import 'theme/app_theme.dart';
 
 Future<void> main() async {
   // IMPORTANT: Ensure Flutter binding is initialized FIRST
@@ -20,16 +21,13 @@ Future<void> main() async {
 }
 
 class LocationAlarmApp extends StatelessWidget {
-  const LocationAlarmApp({Key? key}) : super(key: key);
+  const LocationAlarmApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Location Alarm',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        useMaterial3: true,
-      ),
+      title: 'WakeMeUp',
+      theme: AppTheme.lightTheme,
       home: const MainScreen(),
       debugShowCheckedModeBanner: false,
     );

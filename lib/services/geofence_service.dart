@@ -42,7 +42,7 @@ class GeofenceAlarmService {
 
     // Set up geofencing options
     _geofencing.setup(
-      interval: 5000, // Check location every 5 seconds
+      interval: 10000, // Check location every 10 seconds (optimized for battery)
       accuracy: 100, // Accuracy in meters
       statusChangeDelay: 10000, // 10 second delay for status changes
       allowsMockLocation: false, // Don't allow mock locations
