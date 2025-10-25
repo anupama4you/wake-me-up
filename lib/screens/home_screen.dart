@@ -233,21 +233,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       },
                       onEdit: () async {
                         // Navigate to edit screen
-                        final result = await Navigator.push(
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) =>
                                 MapScreen(existingAlarm: alarm),
                           ),
                         );
-                        if (result != null && result is Map && mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Alarm updated successfully'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        }
+                        // No app notification - phone notification will show if alarm is active
                       },
                       onToggle: (active) async {
                         // If we're turning ON an inactive alarm:
@@ -368,12 +361,7 @@ class _DismissibleAlarmCard extends StatelessWidget {
       confirmDismiss: (_) => _confirm(context),
       onDismissed: (_) {
         onDelete();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Deleted "${alarm.name}"'),
-            action: SnackBarAction(label: 'OK', onPressed: () {}),
-          ),
-        );
+        // No app notification for delete
       },
       background: Container(
         decoration: BoxDecoration(

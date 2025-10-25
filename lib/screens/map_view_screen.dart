@@ -204,18 +204,26 @@ class _MapViewScreenState extends State<MapViewScreen> {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    alarm.name,
-                    style: AppTheme.labelLarge,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  Flexible(
+                    child: Text(
+                      alarm.name,
+                      style: AppTheme.labelLarge.copyWith(height: 1.2),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${alarm.radius.toInt()}m radius',
-                    style: AppTheme.labelMedium.copyWith(
-                      color: AppTheme.textSecondaryColor,
+                  Flexible(
+                    child: Text(
+                      '${alarm.radius.toInt()}m radius',
+                      style: AppTheme.labelMedium.copyWith(
+                        color: AppTheme.textSecondaryColor,
+                        height: 1.2,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],

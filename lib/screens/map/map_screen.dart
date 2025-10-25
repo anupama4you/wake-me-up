@@ -103,9 +103,7 @@ class _MapScreenState extends State<MapScreen> {
     final hasPermission = await LocationService.requestPermission();
     if (!hasPermission) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Location permission is required')),
-      );
+      // Permission denied - service will handle notification
       return;
     }
 
@@ -345,9 +343,7 @@ class _MapScreenState extends State<MapScreen> {
         currentLoc = LatLng(position.latitude, position.longitude);
         setState(() => _currentLocation = currentLoc);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to get current location')),
-        );
+        // Unable to get location - fail silently
         return;
       }
     }
@@ -357,9 +353,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _saveAlarm(bool activate) async {
     if (_selectedLocation == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please select a location')));
+      // No location selected - fail silently
       return;
     }
 
@@ -390,13 +384,7 @@ class _MapScreenState extends State<MapScreen> {
 
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(activate ? 'Alarm activated!' : 'Alarm saved for later'),
-        backgroundColor: activate ? AppTheme.accentGreen : AppTheme.primaryColor,
-      ),
-    );
-
+    // No app notification - phone notification will show if alarm is active
     Navigator.of(context).pop(alarm);
   }
 
@@ -427,16 +415,7 @@ class _MapScreenState extends State<MapScreen> {
               setState(() {
                 _pinModeActive = !_pinModeActive;
               });
-
-              if (_pinModeActive) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Tap anywhere on the map to drop a pin'),
-                    duration: Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              }
+              // No app notification for pin mode
             },
           ),
         ],

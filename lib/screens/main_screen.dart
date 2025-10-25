@@ -43,20 +43,7 @@ class _MainScreenState extends State<MainScreen> {
         _alarms = [];
         _isLoading = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Storage init failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'Retry',
-              textColor: Colors.white,
-              onPressed: () => _initializeAndLoadAlarms(),
-            ),
-          ),
-        );
-      }
+      // Storage initialization failed - logged in console
       return;
     }
 
@@ -74,17 +61,7 @@ class _MainScreenState extends State<MainScreen> {
           _alarms = [];
           _isLoading = false;
         });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Storage not initialized. Alarms will not be saved.',
-              ),
-              backgroundColor: Colors.orange,
-              duration: Duration(seconds: 3),
-            ),
-          );
-        }
+        // Storage not initialized - logged in console
         return;
       }
 
@@ -112,14 +89,8 @@ class _MainScreenState extends State<MainScreen> {
         _alarms = [];
         _isLoading = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading alarms: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      // Error loading alarms - logged in console
+      debugPrint('❌ Error loading alarms: $e');
     }
   }
 
@@ -142,14 +113,8 @@ class _MainScreenState extends State<MainScreen> {
         await AlarmStorageService.updateAlarm(alarm);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error updating alarm: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      // Error updating alarm - logged in console
+      debugPrint('❌ Error updating alarm: $e');
     }
 
     // Handle geofencing based on alarm state
@@ -169,14 +134,7 @@ class _MainScreenState extends State<MainScreen> {
       }
     } catch (e) {
       debugPrint('⚠️ Geofencing toggle error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Geofencing error: $e'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
+      // Error handled - logged in console
     }
   }
 
@@ -187,14 +145,7 @@ class _MainScreenState extends State<MainScreen> {
     try {
       await AlarmStorageService.deleteAlarm(id);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error deleting alarm: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      debugPrint('❌ Error deleting alarm: $e');
     }
 
     // Stop geofencing for deleted alarm
@@ -220,24 +171,7 @@ class _MainScreenState extends State<MainScreen> {
     // (alarm may have been added, or an active alarm may have been stopped)
     await _loadAlarms();
 
-    // Show success message if an alarm was added
-    if (result != null && result is Alarm && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text('Alarm "${result.name}" added successfully'),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.green[600],
-          duration: const Duration(milliseconds: 1500),
-        ),
-      );
-    }
+    // No app notification - phone notification will show if alarm is active
   }
 
   @override

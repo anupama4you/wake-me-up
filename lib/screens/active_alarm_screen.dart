@@ -185,26 +185,7 @@ class _ActiveAlarmScreenState extends State<ActiveAlarmScreen>
     // Stop the pulse animation when alarm triggers
     _pulseController.stop();
 
-    // Show success snackbar
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.white),
-            const SizedBox(width: 8),
-            const Expanded(
-              child: Text(
-                'You\'ve arrived! Tap "Finish" to complete.',
-                style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.green[600],
-        duration: const Duration(seconds: 4),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    // No app notification - phone notification handles alarm trigger
   }
 
   /// Deactivate the alarm and return to home screen

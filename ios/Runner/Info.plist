@@ -58,6 +58,7 @@
 		<string>location</string>
 		<string>fetch</string>
 		<string>processing</string>
+		<string>remote-notification</string>
 	</array>
 	<key>NSMotionUsageDescription</key>
 	<string>This app uses motion data to optimize battery usage while tracking your location</string>
