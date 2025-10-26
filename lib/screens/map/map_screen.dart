@@ -9,6 +9,7 @@ import '../../services/location_service.dart';
 import '../../services/google_places_service.dart';
 import '../../services/geofence_service.dart';
 import '../../services/alarm_storage_service.dart';
+import '../../services/settings_service.dart';
 import '../../theme/app_theme.dart';
 
 class MapScreen extends StatefulWidget {
@@ -56,7 +57,7 @@ class _MapScreenState extends State<MapScreen> {
     final apiKey = dotenv.env['GOOGLE_API_KEY'] ?? '';
     _googlePlacesService = GooglePlacesService(apiKey);
 
-    // Load existing alarm if editing
+    // Load existing alarm if editing, otherwise use default settings
     if (widget.existingAlarm != null) {
       final alarm = widget.existingAlarm!;
       _searchController.text = alarm.address;
@@ -64,9 +65,19 @@ class _MapScreenState extends State<MapScreen> {
       _triggerRadius = alarm.radius;
       _soundLevel = alarm.soundLevel;
       // Don't call _updateMapMarkers here - map controller isn't ready yet
+    } else {
+      // Initialize settings and load defaults for new alarms
+      _loadDefaultSettings();
     }
 
     _requestPermissionAndLocation();
+  }
+
+  Future<void> _loadDefaultSettings() async {
+    setState(() {
+      _triggerRadius = SettingsService.defaultRadius;
+      _soundLevel = SettingsService.defaultSoundLevel;
+    });
   }
 
   @override
@@ -357,10 +368,11 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
+    final isEditing = widget.existingAlarm != null;
+    final wasActive = widget.existingAlarm?.isActive ?? false;
+
     final alarm = Alarm(
-      id:
-          widget.existingAlarm?.id ??
-          DateTime.now().millisecondsSinceEpoch.toString(),
+      id: widget.existingAlarm?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
       name: _searchController.text.isNotEmpty
           ? _searchController.text
           : 'My Alarm',
@@ -374,8 +386,17 @@ class _MapScreenState extends State<MapScreen> {
       isActive: activate,
     );
 
-    // Save alarm
-    await AlarmStorageService.saveAlarm(alarm);
+    // If editing an existing alarm that was active, stop the old geofence first
+    if (isEditing && wasActive) {
+      await GeofenceAlarmService().stopGeofencing(alarm.id);
+    }
+
+    // Save/update alarm
+    if (isEditing) {
+      await AlarmStorageService.updateAlarm(alarm);
+    } else {
+      await AlarmStorageService.saveAlarm(alarm);
+    }
 
     // Start geofencing if activated
     if (activate) {
@@ -392,31 +413,68 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.existingAlarm != null ? 'Edit Alarm' : 'Set Location',
-          style: AppTheme.headingLarge.copyWith(
-            color: AppTheme.textPrimaryColor,
-          ),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: widget.existingAlarm != null
+                    ? AppTheme.accentGreen.withValues(alpha: 0.15)
+                    : AppTheme.primaryColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                widget.existingAlarm != null
+                    ? Icons.edit_location_alt_rounded
+                    : Icons.add_location_alt_rounded,
+                color: widget.existingAlarm != null
+                    ? AppTheme.accentGreen
+                    : AppTheme.primaryColor,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              widget.existingAlarm != null ? 'Edit Location Alarm' : 'New Location Alarm',
+              style: AppTheme.headingMedium.copyWith(
+                color: AppTheme.textPrimaryColor,
+              ),
+            ),
+          ],
         ),
         backgroundColor: AppTheme.surfaceColor,
         iconTheme: const IconThemeData(color: AppTheme.textPrimaryColor),
         elevation: 0,
         actions: [
           // Pin mode toggle
-          IconButton(
-            icon: Icon(
-              _pinModeActive ? Icons.push_pin : Icons.push_pin_outlined,
-              color: _pinModeActive ? AppTheme.primaryColor : AppTheme.textSecondaryColor,
+          Container(
+            margin: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _pinModeActive
+                      ? AppTheme.accentGreen.withValues(alpha: 0.2)
+                      : AppTheme.borderLightColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  _pinModeActive ? Icons.location_pin : Icons.location_pin,
+                  color: _pinModeActive
+                      ? AppTheme.accentGreen
+                      : AppTheme.textSecondaryColor,
+                  size: 20,
+                ),
+              ),
+              tooltip: _pinModeActive
+                  ? 'Pin mode active - Tap map'
+                  : 'Tap to enable pin mode',
+              onPressed: () {
+                setState(() {
+                  _pinModeActive = !_pinModeActive;
+                });
+              },
             ),
-            tooltip: _pinModeActive
-                ? 'Pin mode active - Tap map to place'
-                : 'Enable pin mode',
-            onPressed: () {
-              setState(() {
-                _pinModeActive = !_pinModeActive;
-              });
-              // No app notification for pin mode
-            },
           ),
         ],
       ),
@@ -741,53 +799,86 @@ class _MapScreenState extends State<MapScreen> {
                             const SizedBox(height: 24),
 
                             // Action buttons
-                            Row(
+                            Column(
                               children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () => _saveAlarm(false),
-                                    style: OutlinedButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: AppTheme.paddingMedium,
-                                      ),
-                                      side: const BorderSide(
-                                        color: AppTheme.borderColor,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      'Save for Later',
-                                      style: AppTheme.buttonMedium.copyWith(
-                                        color: AppTheme.textSecondaryColor,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: AppTheme.paddingMedium),
-                                Expanded(
-                                  flex: 2,
+                                // Primary action button
+                                SizedBox(
+                                  width: double.infinity,
                                   child: ElevatedButton(
                                     onPressed: _selectedLocation != null
                                         ? () => _saveAlarm(true)
                                         : null,
                                     style: ElevatedButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(
-                                        vertical: AppTheme.paddingMedium,
+                                        vertical: 16,
                                       ),
                                       backgroundColor: AppTheme.accentGreen,
                                       foregroundColor: AppTheme.textOnPrimaryColor,
-                                      elevation: 2,
+                                      elevation: 0,
                                       shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                                        borderRadius: BorderRadius.circular(12),
                                       ),
                                     ),
-                                    child: Text(
-                                      'Start Alarm',
-                                      style: AppTheme.buttonMedium.copyWith(
-                                        color: AppTheme.textOnPrimaryColor,
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          widget.existingAlarm != null
+                                              ? Icons.check_circle_rounded
+                                              : Icons.alarm_on_rounded,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          widget.existingAlarm != null
+                                              ? 'Update & Activate'
+                                              : 'Activate Alarm',
+                                          style: AppTheme.buttonMedium.copyWith(
+                                            color: AppTheme.textOnPrimaryColor,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                // Secondary action button
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton(
+                                    onPressed: () => _saveAlarm(false),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 16,
                                       ),
+                                      side: BorderSide(
+                                        color: AppTheme.borderColor.withValues(alpha: 0.5),
+                                        width: 1.5,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.bookmark_border_rounded,
+                                          size: 20,
+                                          color: AppTheme.textSecondaryColor,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          widget.existingAlarm != null
+                                              ? 'Save Changes'
+                                              : 'Save for Later',
+                                          style: AppTheme.buttonMedium.copyWith(
+                                            color: AppTheme.textSecondaryColor,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),

@@ -98,20 +98,14 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _toggleAlarm(String id, bool active) async {
     setState(() {
-      for (var alarm in _alarms) {
-        if (alarm.id == id) {
-          alarm.isActive = active;
-        } else if (active) {
-          alarm.isActive = false;
-        }
-      }
+      final alarm = _alarms.firstWhere((a) => a.id == id);
+      alarm.isActive = active;
     });
 
     // Save changes to storage
     try {
-      for (var alarm in _alarms) {
-        await AlarmStorageService.updateAlarm(alarm);
-      }
+      final alarm = _alarms.firstWhere((a) => a.id == id);
+      await AlarmStorageService.updateAlarm(alarm);
     } catch (e) {
       // Error updating alarm - logged in console
       debugPrint('❌ Error updating alarm: $e');
@@ -187,6 +181,7 @@ class _MainScreenState extends State<MainScreen> {
         onToggleAlarm: _toggleAlarm,
         onDeleteAlarm: _deleteAlarm,
         onAddAlarm: _handleAddAlarm,
+        onRefreshNeeded: _loadAlarms, // Reload alarms when edit completes
       ),
       MapViewScreen(alarms: _alarms),
       const SettingsScreen(),

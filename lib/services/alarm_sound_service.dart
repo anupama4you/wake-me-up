@@ -1,6 +1,7 @@
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
+import 'settings_service.dart';
 
 /// Service to manage alarm sounds and vibration
 class AlarmSoundService {
@@ -89,6 +90,12 @@ class AlarmSoundService {
   /// Start vibration pattern based on sound level
   Future<void> _startVibration(String soundLevel) async {
     try {
+      // Check if vibration is enabled in settings
+      if (!SettingsService.vibrationEnabled) {
+        debugPrint('⚠️ Vibration is disabled in settings');
+        return;
+      }
+
       // Check if device supports vibration
       final hasVibrator = await Vibration.hasVibrator();
       if (!hasVibrator) {

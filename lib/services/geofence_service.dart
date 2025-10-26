@@ -7,6 +7,7 @@ import 'package:geofencing_api/geofencing_api.dart';
 import '../models/alarm.dart';
 import 'alarm_storage_service.dart';
 import 'alarm_sound_service.dart';
+import 'settings_service.dart';
 
 /// Service to manage background geofencing for location-based alarms
 /// This service runs even when the app is closed or terminated
@@ -32,6 +33,10 @@ class GeofenceAlarmService {
   bool _isInitialized = false;
   bool _isRunning = false;
 
+  // Throttle notification updates to prevent spam
+  DateTime? _lastNotificationUpdate;
+  static const _notificationUpdateInterval = Duration(seconds: 5);
+
   /// Initialize the geofence service
   Future<void> initialize() async {
     if (_isInitialized) return;
@@ -41,11 +46,11 @@ class GeofenceAlarmService {
     // Initialize local notifications
     await _initializeNotifications();
 
-    // Set up geofencing options
+    // Set up geofencing options using user settings
     _geofencing.setup(
-      interval: 10000, // Check location every 10 seconds (optimized for battery)
-      accuracy: 100, // Accuracy in meters
-      statusChangeDelay: 10000, // 10 second delay for status changes
+      interval: SettingsService.updateIntervalInMillis, // User-configured interval
+      accuracy: SettingsService.accuracyInMeters, // User-configured accuracy
+      statusChangeDelay: SettingsService.updateIntervalInMillis, // Match interval
       allowsMockLocation: false, // Don't allow mock locations
       printsDebugLog: true, // Print debug logs
     );
@@ -114,15 +119,15 @@ class GeofenceAlarmService {
         enableVibration: true,
       );
 
-      // Channel for ongoing monitoring (minimum priority, persistent, silent)
+      // Channel for ongoing monitoring (low priority, persistent, silent)
       const monitoringChannel = AndroidNotificationChannel(
         'alarm_monitoring_channel',
-        'Active Alarm Monitoring',
-        description: 'Shows when location alarms are actively monitoring',
-        importance: Importance.min, // Minimum - stays in tray, no alerts
+        'Background Monitoring',
+        description: 'Silent notification showing the app is monitoring your location in the background',
+        importance: Importance.low, // Low - visible but silent
         playSound: false,
         enableVibration: false,
-        showBadge: false,
+        showBadge: true,
         enableLights: false,
       );
 
@@ -172,10 +177,12 @@ class GeofenceAlarmService {
       if (!_isRunning) {
         await _geofencing.start();
         _isRunning = true;
-      }
 
-      // Show persistent notification
-      await _showPersistentNotification();
+        // Show initial persistent notification only when first starting
+        await _showPersistentNotification();
+        _lastNotificationUpdate = DateTime.now();
+      }
+      // If already running, the location callback will update the notification
 
       debugPrint('✅ Geofencing started for: ${alarm.name}');
       return true;
@@ -204,10 +211,14 @@ class GeofenceAlarmService {
         await _geofencing.stop();
         _isRunning = false;
         await _cancelPersistentNotification();
+        _lastNotificationUpdate = null; // Reset throttle
         debugPrint('🛑 Geofence service stopped (no active geofences)');
       } else {
         // Update notification to reflect remaining alarms
+        // Force update by resetting throttle timestamp
+        _lastNotificationUpdate = null;
         await _showPersistentNotification();
+        _lastNotificationUpdate = DateTime.now();
       }
     } catch (e) {
       debugPrint('❌ Error stopping geofencing: $e');
@@ -257,14 +268,43 @@ class GeofenceAlarmService {
 
       // Show or update persistent notification
       if (activeAlarms.isNotEmpty) {
+        _lastNotificationUpdate = null; // Force update
         await _showPersistentNotification();
+        _lastNotificationUpdate = DateTime.now();
       } else {
         await _cancelPersistentNotification();
+        _lastNotificationUpdate = null;
       }
 
       debugPrint('✅ Synced ${activeAlarms.length} active alarms');
     } catch (e) {
       debugPrint('❌ Error syncing geofences: $e');
+    }
+  }
+
+  /// Reload settings and restart geofencing
+  /// Call this when GPS settings (accuracy or interval) change
+  Future<void> reloadSettings() async {
+    debugPrint('🔄 Reloading geofence settings...');
+
+    try {
+      // Update geofencing setup with new settings
+      _geofencing.setup(
+        interval: SettingsService.updateIntervalInMillis,
+        accuracy: SettingsService.accuracyInMeters,
+        statusChangeDelay: SettingsService.updateIntervalInMillis,
+        allowsMockLocation: false,
+        printsDebugLog: true,
+      );
+
+      // If service is running, restart it with new settings
+      if (_isRunning) {
+        await syncGeofencesWithAlarms();
+      }
+
+      debugPrint('✅ Settings reloaded successfully');
+    } catch (e) {
+      debugPrint('❌ Error reloading settings: $e');
     }
   }
 
@@ -290,10 +330,11 @@ class GeofenceAlarmService {
 
   /// Callback when location changes
   void _onLocationChanged(Location location) {
-    debugPrint('📍 Location changed: ${location.latitude}, ${location.longitude}');
-
-    // Update persistent notification with live distance info
-    _updatePersistentNotificationWithDistance(location);
+    // Only update notification on Android
+    // iOS shows banners for every update, so we skip it there
+    if (Platform.isAndroid) {
+      _updatePersistentNotificationWithDistance(location);
+    }
   }
 
   /// Callback when location services status changes
@@ -409,23 +450,23 @@ class GeofenceAlarmService {
 
     final alarmCount = activeAlarms.length;
     final title = alarmCount == 1
-        ? 'Location Alarm Active'
-        : '$alarmCount Location Alarms Active';
+        ? 'WakeMeUp is Monitoring'
+        : 'WakeMeUp: $alarmCount Alarms Active';
 
     final body = alarmCount == 1
-        ? 'Monitoring: ${activeAlarms.first.name}'
-        : 'Tap to view active alarms';
+        ? '${activeAlarms.first.name} • Tracking your location'
+        : 'Will wake you when you arrive';
 
     // Android notification details - ongoing/persistent
     const androidDetails = AndroidNotificationDetails(
       'alarm_monitoring_channel',
       'Active Alarm Monitoring',
       channelDescription: 'Shows when location alarms are actively monitoring',
-      importance: Importance.min, // Minimum importance - no heads-up
-      priority: Priority.min, // Minimum priority - stays in tray only
+      importance: Importance.low, // Low importance - visible but silent
+      priority: Priority.low, // Low priority - stays in tray, minimal intrusion
       playSound: false,
       enableVibration: false,
-      ongoing: true, // Makes it persistent
+      ongoing: true, // Makes it persistent (can't swipe away)
       autoCancel: false,
       showWhen: false,
       icon: '@mipmap/ic_launcher',
@@ -433,14 +474,18 @@ class GeofenceAlarmService {
       visibility: NotificationVisibility.public,
       onlyAlertOnce: true, // Don't alert on updates
       silent: true, // Completely silent
+      subText: 'Tap to open app', // Helpful subtext
     );
 
-    // iOS notification details
+    // iOS notification details - completely silent, no banner
     const iosDetails = DarwinNotificationDetails(
-      presentAlert: false,
-      presentBadge: true,
-      presentSound: false,
+      presentAlert: false, // Don't show banner
+      presentBadge: false, // Don't show badge
+      presentSound: false, // No sound
+      presentBanner: false, // Explicitly disable banner
+      presentList: true, // Only show in notification center
       threadIdentifier: 'alarm_monitoring', // Group notifications
+      interruptionLevel: InterruptionLevel.passive, // Passive = silent delivery
     );
 
     const details = NotificationDetails(
@@ -464,6 +509,14 @@ class GeofenceAlarmService {
 
     if (activeAlarms.isEmpty) return;
 
+    // Throttle updates - only update every 5 seconds to avoid spam
+    final now = DateTime.now();
+    if (_lastNotificationUpdate != null &&
+        now.difference(_lastNotificationUpdate!) < _notificationUpdateInterval) {
+      return; // Skip this update
+    }
+    _lastNotificationUpdate = now;
+
     // For single alarm, calculate and show distance
     if (activeAlarms.length == 1) {
       final alarm = activeAlarms.first;
@@ -475,8 +528,8 @@ class GeofenceAlarmService {
       );
 
       final distanceText = _formatDistance(distance);
-      final title = 'Location Alarm Active';
-      final body = '${alarm.name} • $distanceText away';
+      final title = 'WakeMeUp is Monitoring';
+      final body = '$distanceText from ${alarm.name}';
 
       // Calculate progress (0-100) based on distance vs radius
       final progress = _calculateProgress(distance, alarm.radius);
@@ -486,8 +539,8 @@ class GeofenceAlarmService {
         'alarm_monitoring_channel',
         'Active Alarm Monitoring',
         channelDescription: 'Shows when location alarms are actively monitoring',
-        importance: Importance.min, // Minimum importance - no heads-up
-        priority: Priority.min, // Minimum priority - stays in tray only
+        importance: Importance.low, // Low importance - visible but silent
+        priority: Priority.low, // Low priority - stays in tray, minimal intrusion
         playSound: false,
         enableVibration: false,
         ongoing: true,
@@ -501,13 +554,17 @@ class GeofenceAlarmService {
         progress: progress,
         onlyAlertOnce: true, // Don't alert on updates
         silent: true, // Completely silent updates
+        subText: 'Tap to open app', // Helpful subtext
       );
 
       const iosDetails = DarwinNotificationDetails(
-        presentAlert: false,
-        presentBadge: true,
-        presentSound: false,
+        presentAlert: false, // Don't show banner
+        presentBadge: false, // Don't show badge
+        presentSound: false, // No sound
+        presentBanner: false, // Explicitly disable banner
+        presentList: true, // Only show in notification center
         threadIdentifier: 'alarm_monitoring', // Group notifications
+        interruptionLevel: InterruptionLevel.passive, // Passive = silent delivery
       );
 
       final details = NotificationDetails(
@@ -541,17 +598,17 @@ class GeofenceAlarmService {
         }
       }
 
-      final title = '${activeAlarms.length} Location Alarms Active';
+      final title = 'WakeMeUp: ${activeAlarms.length} Alarms Active';
       final body = closestDistance != null
-          ? 'Closest: $closestAlarmName • ${_formatDistance(closestDistance)} away'
-          : 'Monitoring ${activeAlarms.length} locations';
+          ? '${_formatDistance(closestDistance)} from $closestAlarmName'
+          : 'Will wake you when you arrive';
 
       const androidDetails = AndroidNotificationDetails(
         'alarm_monitoring_channel',
         'Active Alarm Monitoring',
         channelDescription: 'Shows when location alarms are actively monitoring',
-        importance: Importance.min, // Minimum importance - no heads-up
-        priority: Priority.min, // Minimum priority - stays in tray only
+        importance: Importance.low, // Low importance - visible but silent
+        priority: Priority.low, // Low priority - stays in tray, minimal intrusion
         playSound: false,
         enableVibration: false,
         ongoing: true,
@@ -562,13 +619,17 @@ class GeofenceAlarmService {
         visibility: NotificationVisibility.public,
         onlyAlertOnce: true, // Don't alert on updates
         silent: true, // Completely silent updates
+        subText: 'Tap to open app', // Helpful subtext
       );
 
       const iosDetails = DarwinNotificationDetails(
-        presentAlert: false,
-        presentBadge: true,
-        presentSound: false,
+        presentAlert: false, // Don't show banner
+        presentBadge: false, // Don't show badge
+        presentSound: false, // No sound
+        presentBanner: false, // Explicitly disable banner
+        presentList: true, // Only show in notification center
         threadIdentifier: 'alarm_monitoring', // Group notifications
+        interruptionLevel: InterruptionLevel.passive, // Passive = silent delivery
       );
 
       final details = NotificationDetails(
