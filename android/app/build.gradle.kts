@@ -5,6 +5,18 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Load properties from local.properties
+val localProperties = java.util.Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
+}
+
+// Get Google Maps API key from local.properties or environment variable
+val googleMapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY")
+    ?: System.getenv("GOOGLE_MAPS_API_KEY")
+    ?: ""
+
 android {
     namespace = "com.example.wakemeup"
     compileSdk = flutter.compileSdkVersion
@@ -28,6 +40,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Inject Google Maps API key into AndroidManifest
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsApiKey
     }
 
     buildTypes {

@@ -20,6 +20,8 @@
 
     <key>NSLocationAlwaysUsageDescription</key>
     <string>This app needs your location in the background to alert you when you reach your destination</string>
+	<key>GOOGLE_MAPS_API_KEY</key>
+	<string>$(GOOGLE_MAPS_API_KEY)</string>
 	<key>CFBundleName</key>
 	<string>wakemeup</string>
 	<key>CFBundlePackageType</key>
