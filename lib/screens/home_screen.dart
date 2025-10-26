@@ -86,12 +86,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Calculate distance between two coordinates in meters
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+  double _calculateDistance(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
     const earthRadius = 6371000; // meters
     final dLat = _degreesToRadians(lat2 - lat1);
     final dLon = _degreesToRadians(lon2 - lon1);
 
-    final a = sin(dLat / 2) * sin(dLat / 2) +
+    final a =
+        sin(dLat / 2) * sin(dLat / 2) +
         cos(_degreesToRadians(lat1)) *
             cos(_degreesToRadians(lat2)) *
             sin(dLon / 2) *
@@ -156,7 +162,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Show battery warning dialog when enabling multiple alarms
-  Future<bool?> _showBatteryWarning(BuildContext context, int totalActive) async {
+  Future<bool?> _showBatteryWarning(
+    BuildContext context,
+    int totalActive,
+  ) async {
     return await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -178,11 +187,19 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: AppTheme.paddingMedium),
             Text(
               'Multiple active alarms will:',
-              style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor),
+              style: AppTheme.bodyMedium.copyWith(
+                color: AppTheme.textSecondaryColor,
+              ),
             ),
             const SizedBox(height: 8),
-            _buildWarningPoint(Icons.battery_charging_full, 'Increase battery usage'),
-            _buildWarningPoint(Icons.location_on, 'Track your location continuously'),
+            _buildWarningPoint(
+              Icons.battery_charging_full,
+              'Increase battery usage',
+            ),
+            _buildWarningPoint(
+              Icons.location_on,
+              'Track your location continuously',
+            ),
             _buildWarningPoint(Icons.gps_fixed, 'Check GPS every 10 seconds'),
             const SizedBox(height: AppTheme.paddingMedium),
             Container(
@@ -190,11 +207,17 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: BoxDecoration(
                 color: AppTheme.infoColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                border: Border.all(color: AppTheme.infoColor.withValues(alpha: 0.3)),
+                border: Border.all(
+                  color: AppTheme.infoColor.withValues(alpha: 0.3),
+                ),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.tips_and_updates, color: AppTheme.infoColor, size: 20),
+                  const Icon(
+                    Icons.tips_and_updates,
+                    color: AppTheme.infoColor,
+                    size: 20,
+                  ),
                   const SizedBox(width: AppTheme.paddingSmall),
                   Expanded(
                     child: Text(
@@ -233,12 +256,13 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.only(left: AppTheme.paddingSmall, bottom: 6),
       child: Row(
         children: [
-          Icon(icon, size: AppTheme.iconSizeSmall, color: AppTheme.warningColor),
-          const SizedBox(width: AppTheme.paddingSmall),
-          Text(
-            text,
-            style: AppTheme.bodySmall,
+          Icon(
+            icon,
+            size: AppTheme.iconSizeSmall,
+            color: AppTheme.warningColor,
           ),
+          const SizedBox(width: AppTheme.paddingSmall),
+          Text(text, style: AppTheme.bodySmall),
         ],
       ),
     );
@@ -278,19 +302,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('WakeMeUp', style: TextStyle(color: AppTheme.textOnPrimaryColor, fontSize: 20)),
-            if (activeCount > 0)
-              Text(
-                '$activeCount active ${activeCount == 1 ? 'alarm' : 'alarms'}',
-                style: AppTheme.labelMedium.copyWith(
-                  color: AppTheme.textOnPrimaryColor.withValues(alpha: 0.9),
-                ),
-              ),
-          ],
+        title: Center(
+          child: Image.asset(
+            'assets/icons/Wake_text.png',
+            height: 36,
+            fit: BoxFit.contain,
+          ),
         ),
+        centerTitle: true,
         backgroundColor: AppTheme.primaryColor,
         elevation: 0,
         leading: IconButton(
@@ -378,7 +397,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => AlarmDetailMapScreen(alarm: alarm),
+                            builder: (context) =>
+                                AlarmDetailMapScreen(alarm: alarm),
                           ),
                         );
                       }
@@ -388,8 +408,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       await Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) =>
-                              MapScreen(existingAlarm: alarm),
+                          builder: (context) => MapScreen(existingAlarm: alarm),
                         ),
                       );
                       // Trigger refresh after editing
@@ -397,40 +416,40 @@ class _HomeScreenState extends State<HomeScreen> {
                     },
                     onDelete: () => widget.onDeleteAlarm(alarm.id),
                     onToggle: (active) async {
-                        // If we're turning ON an inactive alarm:
-                        if (active && !alarm.isActive) {
-                          // Count currently active alarms
-                          final activeCount = widget.alarms
-                              .where((a) => a.isActive && a.id != alarm.id)
-                              .length;
+                      // If we're turning ON an inactive alarm:
+                      if (active && !alarm.isActive) {
+                        // Count currently active alarms
+                        final activeCount = widget.alarms
+                            .where((a) => a.isActive && a.id != alarm.id)
+                            .length;
 
-                          // Check maximum limit first (10 active alarms)
-                          if (activeCount >= 10) {
-                            await _showMaxLimitDialog(context);
-                            return;
-                          }
-
-                          // Show battery warning if enabling 2nd or more alarm
-                          if (activeCount >= 1) {
-                            final shouldEnable = await _showBatteryWarning(
-                              context,
-                              activeCount + 1,
-                            );
-                            if (shouldEnable == true) {
-                              widget.onToggleAlarm(alarm.id, true);
-                            }
-                            return;
-                          }
-
-                          // First alarm - no warning needed
-                          widget.onToggleAlarm(alarm.id, true);
+                        // Check maximum limit first (10 active alarms)
+                        if (activeCount >= 10) {
+                          await _showMaxLimitDialog(context);
                           return;
                         }
 
-                        // Otherwise just forward the toggle
-                        widget.onToggleAlarm(alarm.id, active);
-                      },
-                    );
+                        // Show battery warning if enabling 2nd or more alarm
+                        if (activeCount >= 1) {
+                          final shouldEnable = await _showBatteryWarning(
+                            context,
+                            activeCount + 1,
+                          );
+                          if (shouldEnable == true) {
+                            widget.onToggleAlarm(alarm.id, true);
+                          }
+                          return;
+                        }
+
+                        // First alarm - no warning needed
+                        widget.onToggleAlarm(alarm.id, true);
+                        return;
+                      }
+
+                      // Otherwise just forward the toggle
+                      widget.onToggleAlarm(alarm.id, active);
+                    },
+                  );
                 },
               ),
       ),
@@ -472,7 +491,9 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: AppTheme.paddingSmall),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppTheme.paddingXLarge),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppTheme.paddingXLarge,
+            ),
             child: Text(
               'Create your first location-based alarm to get notified when you arrive',
               textAlign: TextAlign.center,
@@ -580,9 +601,7 @@ class _DismissibleAlarmCard extends StatelessWidget {
             const SizedBox(width: AppTheme.paddingSmall),
             Text(
               'Delete',
-              style: AppTheme.labelLarge.copyWith(
-                color: AppTheme.errorColor,
-              ),
+              style: AppTheme.labelLarge.copyWith(color: AppTheme.errorColor),
             ),
           ],
         ),
@@ -705,7 +724,8 @@ class _AlarmCard extends StatelessWidget {
                               _ModernActionButton(
                                 icon: Icons.delete_rounded,
                                 color: AppTheme.errorColor,
-                                onPressed: () => _showDeleteConfirmation(context),
+                                onPressed: () =>
+                                    _showDeleteConfirmation(context),
                                 tooltip: 'Delete',
                               ),
                             ],
@@ -730,12 +750,17 @@ class _AlarmCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTheme.bodySmall.copyWith(
-                        color: AppTheme.getTextColor(isActive: isActive, isSecondary: true),
+                        color: AppTheme.getTextColor(
+                          isActive: isActive,
+                          isSecondary: true,
+                        ),
                       ),
                     ),
 
                     // Progress bar (only for active alarms with location data)
-                    if (isActive && currentDistance != null && progress != null) ...[
+                    if (isActive &&
+                        currentDistance != null &&
+                        progress != null) ...[
                       const SizedBox(height: AppTheme.paddingSmall),
                       _ProgressIndicator(
                         distance: currentDistance!,
@@ -946,11 +971,7 @@ class _ModernActionButton extends StatelessWidget {
             width: 40,
             height: 40,
             alignment: Alignment.center,
-            child: Icon(
-              icon,
-              color: color,
-              size: 22,
-            ),
+            child: Icon(icon, color: color, size: 22),
           ),
         ),
       ),
@@ -985,8 +1006,8 @@ class _ProgressIndicator extends StatelessWidget {
     final progressColor = progress >= 75
         ? AppTheme.successColor
         : progress >= 40
-            ? AppTheme.accentGreen
-            : AppTheme.primaryColor;
+        ? AppTheme.accentGreen
+        : AppTheme.primaryColor;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1000,13 +1021,19 @@ class _ProgressIndicator extends StatelessWidget {
                 Icon(
                   Icons.navigation_rounded,
                   size: 14,
-                  color: AppTheme.getTextColor(isActive: isActive, isSecondary: true),
+                  color: AppTheme.getTextColor(
+                    isActive: isActive,
+                    isSecondary: true,
+                  ),
                 ),
                 const SizedBox(width: 4),
                 Text(
                   _formatDistance(distance),
                   style: AppTheme.labelSmall.copyWith(
-                    color: AppTheme.getTextColor(isActive: isActive, isSecondary: true),
+                    color: AppTheme.getTextColor(
+                      isActive: isActive,
+                      isSecondary: true,
+                    ),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
