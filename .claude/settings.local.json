@@ -8,7 +8,9 @@
       "Read(//Users/anupama4you/.pub-cache/hosted/pub.dev/**)",
       "Bash(find:*)",
       "Bash(flutter clean:*)",
-      "Bash(git grep:*)"
+      "Bash(git grep:*)",
+      "Bash(flutter run:*)",
+      "Bash(./ios/scripts/inject_api_key.sh:*)"
     ],
     "deny": [],
     "ask": []

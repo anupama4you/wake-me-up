@@ -7,21 +7,21 @@ class AppTheme {
 
   /* ============================= COLORS ============================= */
 
-  // Primary Colors - Deep Purple/Indigo (Trust, Night/Sleep theme, Modern)
-  static const Color primaryColor = Color(0xFF5E35B1); // Deep Purple 600
-  static const Color primaryLightColor = Color(0xFF7E57C2); // Deep Purple 400
-  static const Color primaryDarkColor = Color(0xFF4527A0); // Deep Purple 700
+  // Primary Colors - Winter Chill (Cool, Crisp, Clear)
+  static const Color primaryColor = Color(0xFF4F7C82); // Dark teal - primary actions
+  static const Color primaryLightColor = Color(0xFFB8E3E9); // Light cyan - backgrounds
+  static const Color primaryDarkColor = Color(0xFF0B2E33); // Very dark teal - emphasis
 
-  // Accent Colors - Teal/Cyan (Location/Travel, Energy, Freshness)
-  static const Color accentGreen = Color(0xFF00897B); // Teal 600
-  static const Color accentGreenLight = Color(0xFF26A69A); // Teal 400
-  static const Color accentGreenDark = Color(0xFF00695C); // Teal 800
+  // Accent Colors - Winter Blue-Gray (Calm, Modern, Professional)
+  static const Color accentGreen = Color(0xFF93B1B5); // Medium gray-blue
+  static const Color accentGreenLight = Color(0xFFB8E3E9); // Light cyan
+  static const Color accentGreenDark = Color(0xFF4F7C82); // Dark teal
 
   // Status Colors
-  static const Color successColor = Color(0xFF00897B); // Teal (Active alarms)
+  static const Color successColor = Color(0xFF93B1B5); // Gray-blue (Active alarms)
   static const Color warningColor = Color(0xFFFF6F00); // Orange 800 (Battery warnings)
   static const Color errorColor = Color(0xFFD32F2F); // Red 700 (Delete, critical)
-  static const Color infoColor = Color(0xFF0288D1); // Light Blue 700 (Info messages)
+  static const Color infoColor = Color(0xFF4F7C82); // Dark teal (Info messages)
 
   // Background Colors
   static const Color backgroundColor = Color(0xFFFAFAFA); // Grey 50
@@ -39,14 +39,14 @@ class AppTheme {
   static const Color borderLightColor = Color(0xFFEEEEEE); // Grey 200
   static const Color dividerColor = Color(0xFFBDBDBD);
 
-  // Active Alarm Colors (Teal Theme)
-  static const Color activeAlarmBackground = Color(0xFFE0F2F1); // Teal 50
-  static const Color activeAlarmBackgroundGradientEnd = Color(0xFFB2DFDB); // Teal 100
-  static const Color activeAlarmBorder = Color(0xFF4DB6AC); // Teal 300
-  static const Color activeAlarmText = Color(0xFF004D40); // Teal 900
-  static const Color activeAlarmTextSecondary = Color(0xFF00695C); // Teal 800
-  static const Color activeAlarmChipBackground = Color(0xFF80CBC4); // Teal 200
-  static const Color activeAlarmIconColor = Color(0xFF00897B); // Teal 600
+  // Active Alarm Colors (Winter Chill Theme)
+  static const Color activeAlarmBackground = Color(0xFFE8F4F6); // Very light cyan
+  static const Color activeAlarmBackgroundGradientEnd = Color(0xFFD0E9ED); // Light cyan-gray
+  static const Color activeAlarmBorder = Color(0xFF4F7C82); // Dark teal border
+  static const Color activeAlarmText = Color(0xFF0B2E33); // Very dark teal text
+  static const Color activeAlarmTextSecondary = Color(0xFF4F7C82); // Dark teal
+  static const Color activeAlarmChipBackground = Color(0xFF93B1B5); // Gray-blue chips
+  static const Color activeAlarmIconColor = Color(0xFF4F7C82); // Dark teal icons
 
   /* ========================== TEXT STYLES ========================== */
 
@@ -338,8 +338,8 @@ class AppTheme {
       gradient: isActive
           ? const LinearGradient(
               colors: [
-                activeAlarmBackground,
-                Color.fromRGBO(178, 223, 219, 0.3), // Teal 100 with transparency
+                activeAlarmBackground, // Very light cyan
+                Color.fromRGBO(208, 233, 237, 0.5), // Light cyan-gray with transparency
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -356,7 +356,7 @@ class AppTheme {
           blurRadius: isActive ? 16 : 10,
           offset: const Offset(0, 4),
           color: isActive
-              ? const Color.fromRGBO(0, 137, 123, 0.15) // Teal 600 shadow
+              ? const Color.fromRGBO(79, 124, 130, 0.15) // Dark teal shadow
               : const Color.fromRGBO(0, 0, 0, 0.04),
         ),
       ],

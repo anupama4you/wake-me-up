@@ -37,18 +37,29 @@ class _MainScreenState extends State<MainScreen> {
       debugPrint('🔧 Initializing AlarmStorageService...');
       await AlarmStorageService.init();
       debugPrint('✅ AlarmStorageService initialized successfully');
-    } catch (e) {
+
+      // Then load alarms
+      await _loadAlarms();
+    } catch (e, stackTrace) {
       debugPrint('❌ Failed to initialize AlarmStorageService: $e');
+      debugPrint('Stack trace: $stackTrace');
+
+      // Try to continue anyway - maybe storage will work later
       setState(() {
         _alarms = [];
         _isLoading = false;
       });
-      // Storage initialization failed - logged in console
-      return;
-    }
 
-    // Then load alarms
-    await _loadAlarms();
+      // Show error to user but don't crash
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Storage initialization failed. Some features may not work.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
 
   // Load alarms from local storage

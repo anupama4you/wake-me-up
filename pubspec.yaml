@@ -111,8 +111,8 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icons/Wake.png"
+  image_path: "assets/icons/app_icon.png"
   remove_alpha_ios: true  # Remove alpha channel for App Store compliance
   # Adaptive icons for Android (optional - uses same image if not specified)
-  adaptive_icon_background: "#5E35B1"  # Deep Purple to match app theme
-  adaptive_icon_foreground: "assets/icons/Wake.png"
+  adaptive_icon_background: "#4F7C82"  # Dark teal to match winter chill theme
+  adaptive_icon_foreground: "assets/icons/app_icon.png"

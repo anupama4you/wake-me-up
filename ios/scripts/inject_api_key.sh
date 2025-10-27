@@ -2,9 +2,13 @@
 
 # Script to inject Google Maps API key from .env into Info.plist
 
+# Get the script's directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$SCRIPT_DIR/../.."
+
 # Path to .env file
-ENV_FILE="${SRCROOT}/../../.env"
-PLIST_FILE="${SRCROOT}/Runner/Info.plist"
+ENV_FILE="$PROJECT_ROOT/.env"
+PLIST_FILE="$PROJECT_ROOT/ios/Runner/Info.plist"
 
 # Read API key from .env
 if [ -f "$ENV_FILE" ]; then

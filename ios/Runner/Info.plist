@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -12,16 +14,6 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
-    <key>NSLocationWhenInUseUsageDescription</key>
-    <string>This app needs your location to set location-based alarms</string>
-
-    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>This app needs your location in the background to alert you when you reach your destination</string>
-
-    <key>NSLocationAlwaysUsageDescription</key>
-    <string>This app needs your location in the background to alert you when you reach your destination</string>
-	<key>GOOGLE_MAPS_API_KEY</key>
-	<string>$(GOOGLE_MAPS_API_KEY)</string>
 	<key>CFBundleName</key>
 	<string>wakemeup</string>
 	<key>CFBundlePackageType</key>
@@ -32,8 +24,27 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>GOOGLE_MAPS_API_KEY</key>
+	<string>AIzaSyDFU0PLWPb6HCt43EcK6nkVcNe9motNmUg</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>This app needs your location in the background to alert you when you reach your destination</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>This app needs your location in the background to alert you when you reach your destination</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs your location to set location-based alarms</string>
+	<key>NSMotionUsageDescription</key>
+	<string>This app uses motion data to optimize battery usage while tracking your location</string>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+		<string>processing</string>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -51,18 +62,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>CADisableMinimumFrameDurationOnPhone</key>
-	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>location</string>
-		<string>fetch</string>
-		<string>processing</string>
-		<string>remote-notification</string>
-	</array>
-	<key>NSMotionUsageDescription</key>
-	<string>This app uses motion data to optimize battery usage while tracking your location</string>
 </dict>
 </plist>

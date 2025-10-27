@@ -9,21 +9,42 @@ class AlarmStorageService {
   /// Initialize Hive and open the alarms box
   static Future<void> init() async {
     try {
+      // Check if box is already open (from previous session)
+      if (_alarmsBox != null && _alarmsBox!.isOpen) {
+        debugPrint('📦 Hive box already open, reusing existing box');
+        return;
+      }
+
       // Initialize Hive with Flutter-specific path handling
       debugPrint('📦 Calling Hive.initFlutter()...');
       await Hive.initFlutter();
       debugPrint('📦 Hive.initFlutter() completed');
 
-      // Open the alarms box
-      debugPrint('📦 Opening box: $_alarmsBoxName...');
-      _alarmsBox = await Hive.openBox<Map>(_alarmsBoxName);
-      debugPrint('📦 Box opened successfully: ${_alarmsBox!.path}');
+      // Check if box already exists and is open
+      if (Hive.isBoxOpen(_alarmsBoxName)) {
+        debugPrint('📦 Box already open, getting existing box...');
+        _alarmsBox = Hive.box<Map>(_alarmsBoxName);
+      } else {
+        // Open the alarms box
+        debugPrint('📦 Opening box: $_alarmsBoxName...');
+        _alarmsBox = await Hive.openBox<Map>(_alarmsBoxName);
+      }
+
+      debugPrint('📦 Box ready: ${_alarmsBox!.path}');
     } catch (e, stackTrace) {
       // Log detailed error
       debugPrint('❌ Hive initialization failed: $e');
       debugPrint('Stack trace: $stackTrace');
-      // Re-throw with more context
-      throw Exception('Failed to initialize Hive storage: $e');
+
+      // Try to recover by getting existing box if it's already open
+      if (Hive.isBoxOpen(_alarmsBoxName)) {
+        debugPrint('🔄 Attempting recovery: getting existing open box...');
+        _alarmsBox = Hive.box<Map>(_alarmsBoxName);
+        debugPrint('✅ Recovery successful');
+      } else {
+        // Re-throw with more context
+        throw Exception('Failed to initialize Hive storage: $e');
+      }
     }
   }
 

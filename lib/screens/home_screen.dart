@@ -411,6 +411,10 @@ class _HomeScreenState extends State<HomeScreen> {
                           builder: (context) => MapScreen(existingAlarm: alarm),
                         ),
                       );
+                      // Exit edit mode after editing
+                      setState(() {
+                        _isEditMode = false;
+                      });
                       // Trigger refresh after editing
                       widget.onRefreshNeeded?.call();
                     },
