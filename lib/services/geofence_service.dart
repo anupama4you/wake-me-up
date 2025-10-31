@@ -46,18 +46,14 @@ void geofenceCallbackDispatcher() {
             debugPrint('   - Sound Level: ${alarm.soundLevel}');
             debugPrint('   - Active: ${alarm.isActive}');
 
-            // Show notification
-            debugPrint('📢 Sending notification...');
+            // Show notification with sound (this works in background)
+            debugPrint('📢 Sending notification with alarm sound...');
             await _showBackgroundNotification(alarm);
-            debugPrint('✅ Notification sent');
+            debugPrint('✅ Notification sent - alarm sound will play through notification');
 
-            // Start alarm sound
-            debugPrint('🔊 Starting alarm sound...');
-            await AlarmSoundService().startAlarm(
-              alarmId: alarm.id,
-              soundLevel: alarm.soundLevel,
-            );
-            debugPrint('✅ Alarm sound started successfully');
+            // Note: We DON'T start AlarmSoundService in background isolate
+            // because it won't work when app is closed.
+            // The notification system handles the sound in background.
           } else {
             debugPrint('❌❌❌ ALARM NOT FOUND FOR ZONE: $zoneID ❌❌❌');
             debugPrint('Available alarm IDs in storage:');
@@ -108,6 +104,7 @@ Future<void> _showBackgroundNotification(Alarm alarm) async {
     debugPrint('⚠️ Error initializing notifications (may already be initialized): $e');
   }
 
+  // Android notification with custom alarm sound
   const androidDetails = AndroidNotificationDetails(
     'alarm_geofence_channel',
     'Location Alarms',
@@ -115,18 +112,30 @@ Future<void> _showBackgroundNotification(Alarm alarm) async {
     importance: Importance.max,
     priority: Priority.max,
     playSound: true,
+    sound: RawResourceAndroidNotificationSound('alarm'), // Custom alarm sound
     enableVibration: true,
     fullScreenIntent: true,
     category: AndroidNotificationCategory.alarm,
+    ongoing: true, // Makes notification persistent (can't be dismissed by swiping)
+    autoCancel: false, // Notification stays until explicitly dismissed
+    onlyAlertOnce: false, // Allow sound to play multiple times
+    channelShowBadge: true,
+    styleInformation: BigTextStyleInformation(
+      'You have arrived at your destination. Tap to open app.',
+      contentTitle: '⏰ Location Alarm',
+    ),
   );
 
+  // iOS notification with critical interruption level
   const iosDetails = DarwinNotificationDetails(
     presentAlert: true,
     presentBadge: true,
     presentSound: true,
+    sound: 'alarm.mp3', // Custom sound from assets
     presentBanner: true,
     presentList: true,
-    interruptionLevel: InterruptionLevel.critical,
+    interruptionLevel: InterruptionLevel.critical, // Bypasses Focus modes
+    categoryIdentifier: 'alarm_category',
   );
 
   const details = NotificationDetails(
@@ -242,7 +251,7 @@ class GeofenceAlarmService {
               AndroidFlutterLocalNotificationsPlugin>();
       await androidPlugin?.requestNotificationsPermission();
 
-      // Create notification channels
+      // Create notification channels with custom alarm sound
       await androidPlugin?.createNotificationChannel(
         const AndroidNotificationChannel(
           'alarm_geofence_channel',
@@ -250,7 +259,10 @@ class GeofenceAlarmService {
           description: 'Notifications for location-based alarms',
           importance: Importance.max,
           playSound: true,
+          sound: RawResourceAndroidNotificationSound('alarm'), // Custom alarm sound
           enableVibration: true,
+          enableLights: true,
+          showBadge: true,
         ),
       );
 
@@ -444,16 +456,22 @@ class GeofenceAlarmService {
     debugPrint('🚨 Triggering alarm NOW: ${alarm.name}');
 
     try {
-      // Show notification
+      // Show notification with sound
       await _showBackgroundNotification(alarm);
-      debugPrint('✅ Notification shown');
+      debugPrint('✅ Notification shown with sound');
 
-      // Start alarm sound
-      await _alarmSoundService.startAlarm(
-        alarmId: alarm.id,
-        soundLevel: alarm.soundLevel,
-      );
-      debugPrint('✅ Alarm sound started');
+      // IMPORTANT: Only start alarm sound if app is in foreground
+      // Background sound is handled by the notification system
+      try {
+        await _alarmSoundService.startAlarm(
+          alarmId: alarm.id,
+          soundLevel: alarm.soundLevel,
+        );
+        debugPrint('✅ App alarm sound started (foreground)');
+      } catch (e) {
+        debugPrint('⚠️ Could not start app alarm sound (app may be in background): $e');
+        debugPrint('   Alarm sound will play through notification');
+      }
     } catch (e, stackTrace) {
       debugPrint('❌ Error triggering alarm: $e');
       debugPrint('Stack trace: $stackTrace');

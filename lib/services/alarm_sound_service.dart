@@ -45,6 +45,30 @@ class AlarmSoundService {
       debugPrint('🎵 Creating AudioPlayer instance...');
       _audioPlayer = AudioPlayer();
 
+      // Configure audio player for background playback
+      debugPrint('🎵 Configuring audio session for background playback...');
+      await _audioPlayer!.setPlayerMode(PlayerMode.mediaPlayer);
+
+      // Set audio context for iOS background playback
+      final audioContext = AudioContext(
+        iOS: AudioContextIOS(
+          category: AVAudioSessionCategory.playback,
+          options: {
+            AVAudioSessionOptions.mixWithOthers,
+            AVAudioSessionOptions.duckOthers,
+          },
+        ),
+        android: AudioContextAndroid(
+          isSpeakerphoneOn: true,
+          stayAwake: true,
+          contentType: AndroidContentType.sonification,
+          usageType: AndroidUsageType.alarm,
+          audioFocus: AndroidAudioFocus.gain,
+        ),
+      );
+      await _audioPlayer!.setAudioContext(audioContext);
+      debugPrint('✅ Audio session configured for background');
+
       // Set volume based on sound level
       final volume = _getVolumeFromLevel(soundLevel);
       debugPrint('🎵 Setting volume to: $volume');
