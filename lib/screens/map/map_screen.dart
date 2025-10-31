@@ -544,6 +544,23 @@ class _MapScreenState extends State<MapScreen> {
                             Icons.search,
                             color: AppTheme.primaryColor,
                           ),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(
+                                    Icons.clear,
+                                    color: AppTheme.textSecondaryColor,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _searchController.clear();
+                                      _predictions = [];
+                                      _showPredictions = false;
+                                      _selectedLocation = null; // Deselect location
+                                      _updateMapMarkers(); // Update map to remove marker
+                                    });
+                                  },
+                                )
+                              : null,
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: AppTheme.paddingMedium,

@@ -10,7 +10,10 @@
       "Bash(flutter clean:*)",
       "Bash(git grep:*)",
       "Bash(flutter run:*)",
-      "Bash(./ios/scripts/inject_api_key.sh:*)"
+      "Bash(./ios/scripts/inject_api_key.sh:*)",
+      "Bash(flutter doctor:*)",
+      "Bash(flutter devices:*)",
+      "Bash(pod install)"
     ],
     "deny": [],
     "ask": []

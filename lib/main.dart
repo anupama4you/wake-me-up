@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'screens/main_screen.dart';
 import 'theme/app_theme.dart';
 import 'services/settings_service.dart';
+
+// Global notification plugin instance
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
 
 Future<void> main() async {
   // IMPORTANT: Ensure Flutter binding is initialized FIRST
@@ -24,9 +29,55 @@ Future<void> main() async {
     debugPrint('⚠️ Error initializing settings: $e');
   }
 
+  // Initialize notifications BEFORE running app
+  await _initializeNotifications();
+
   // NOTE: Hive initialization moved to MainScreen.initState()
   // to avoid platform channel issues before app starts
   runApp(const LocationAlarmApp());
+}
+
+/// Initialize local notifications with proper iOS permissions
+Future<void> _initializeNotifications() async {
+  debugPrint('🔔 Initializing notifications...');
+
+  // Android initialization settings
+  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  // iOS initialization settings - request all permissions upfront
+  const iosSettings = DarwinInitializationSettings(
+    requestAlertPermission: true,
+    requestBadgePermission: true,
+    requestSoundPermission: true,
+    requestCriticalPermission: false, // Don't request critical for now
+  );
+
+  const initSettings = InitializationSettings(
+    android: androidSettings,
+    iOS: iosSettings,
+  );
+
+  await flutterLocalNotificationsPlugin.initialize(
+    initSettings,
+    onDidReceiveNotificationResponse: (details) {
+      debugPrint('🔔 Notification tapped: ${details.payload}');
+    },
+  );
+
+  // Explicitly request iOS permissions
+  final iosPlugin = flutterLocalNotificationsPlugin
+      .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+
+  if (iosPlugin != null) {
+    final granted = await iosPlugin.requestPermissions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    debugPrint('📱 iOS notification permissions granted: $granted');
+  }
+
+  debugPrint('✅ Notifications initialized');
 }
 
 class LocationAlarmApp extends StatelessWidget {

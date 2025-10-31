@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'dart:io';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
 import '../services/geofence_service.dart';
@@ -105,6 +107,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ]),
             const SizedBox(height: 24),
+            _buildSectionTitle('DIAGNOSTICS'),
+            _buildSettingsCard([
+              _buildSettingRow(
+                'Test Notification',
+                subtitle: 'Send a test notification to verify notifications work',
+                trailing: const Icon(Icons.notifications_active, color: AppTheme.primaryColor),
+                onTap: () => _testNotification(),
+              ),
+            ]),
+            const SizedBox(height: 24),
             _buildSectionTitle('ABOUT'),
             _buildSettingsCard([
               _buildSettingRow('Version',
@@ -206,6 +218,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('✅ Geofence settings reloaded');
     } catch (e) {
       debugPrint('⚠️ Error reloading geofence settings: $e');
+    }
+  }
+
+  /// Test notification to verify notifications are working
+  Future<void> _testNotification() async {
+    debugPrint('🔔 Testing notification...');
+
+    final notificationsPlugin = FlutterLocalNotificationsPlugin();
+
+    // Check permissions first
+    if (Platform.isIOS) {
+      final iosPlugin = notificationsPlugin
+          .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+
+      final permissions = await iosPlugin?.checkPermissions();
+      debugPrint('📱 iOS Notification Permissions: $permissions');
+
+      if (permissions == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Could not check notification permissions. Please check Settings > Notifications > WakeMeUp'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 5),
+          ),
+        );
+        return;
+      }
+    }
+
+    // Send test notification
+    try {
+      const androidDetails = AndroidNotificationDetails(
+        'test_channel',
+        'Test Notifications',
+        channelDescription: 'Test notification channel',
+        importance: Importance.max,
+        priority: Priority.high,
+      );
+
+      const iosDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+        presentBanner: true,
+        presentList: true,
+        sound: 'default',
+        interruptionLevel: InterruptionLevel.critical,
+      );
+
+      const details = NotificationDetails(
+        android: androidDetails,
+        iOS: iosDetails,
+      );
+
+      await notificationsPlugin.show(
+        999998,
+        '🔔 Test Notification',
+        'If you see this, notifications are working!',
+        details,
+      );
+
+      debugPrint('✅ Test notification sent successfully');
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Test notification sent! Check your notification center.'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error sending test notification: $e');
+      debugPrint('Stack trace: $stackTrace');
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
     }
   }
 }

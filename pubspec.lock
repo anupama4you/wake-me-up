@@ -209,30 +209,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
-  fl_location:
-    dependency: transitive
-    description:
-      name: fl_location
-      sha256: "8c8ef3e862dae66fd1d8dfcf53ed14da4d50d3da0e33eab2b5fa1dc697de9eb5"
-      url: "https://pub.dev"
-    source: hosted
-    version: "5.0.0"
-  fl_location_platform_interface:
-    dependency: transitive
-    description:
-      name: fl_location_platform_interface
-      sha256: bd730e65248dec7d4fb37d18ea36c6ffe54f8dda6f9d0308c4ddc0d24e8f8c3f
-      url: "https://pub.dev"
-    source: hosted
-    version: "5.1.0"
-  fl_location_web:
-    dependency: transitive
-    description:
-      name: fl_location_web
-      sha256: "203777c6d52fe525d01cf53e571840d6d3585c8ce7d0072dcb4df6404e085146"
-      url: "https://pub.dev"
-    source: hosted
-    version: "5.0.0"
   flutter:
     dependency: "direct main"
     description: flutter
@@ -304,14 +280,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  geofencing_api:
+  geofence_foreground_service:
     dependency: "direct main"
     description:
-      name: geofencing_api
-      sha256: "9f559767fb658028acafd2678892d2a6667570b42f3ee20db18cc0aaa143006a"
+      name: geofence_foreground_service
+      sha256: "1a57b9b3e33faab2eca550e30b3765bfbc2d7267baea799caa8297629a438dbe"
       url: "https://pub.dev"
     source: hosted
-    version: "2.0.0"
+    version: "1.1.5"
   geolocator:
     dependency: "direct main"
     description:
@@ -464,6 +440,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.9.0"
+  latlng:
+    dependency: transitive
+    description:
+      name: latlng
+      sha256: a324c80073ef959d67ead88b57a717b7b87f182da1b980ccae92b3555ac82712
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.7"
   leak_tracker:
     dependency: transitive
     description:

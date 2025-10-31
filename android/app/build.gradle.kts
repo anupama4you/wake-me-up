@@ -36,10 +36,11 @@ android {
         applicationId = "com.example.wakemeup"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 26  // Required for geofencing and foreground services
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        multiDexEnabled = true  // Required for geofence_foreground_service
 
         // Inject Google Maps API key into AndroidManifest
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsApiKey

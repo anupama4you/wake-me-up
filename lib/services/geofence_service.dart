@@ -1,81 +1,231 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:geofencing_api/geofencing_api.dart';
+import 'package:geofence_foreground_service/exports.dart';
+import 'package:geofence_foreground_service/geofence_foreground_service.dart';
+import 'package:geofence_foreground_service/models/zone.dart' as geofence;
+import 'package:geofence_foreground_service/constants/geofence_event_type.dart';
+import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
 import 'alarm_storage_service.dart';
 import 'alarm_sound_service.dart';
-import 'settings_service.dart';
+import 'location_service.dart';
 
-/// Service to manage background geofencing for location-based alarms
-/// This service runs even when the app is closed or terminated
+/// Top-level callback dispatcher for geofence events (must be top-level)
+@pragma('vm:entry-point')
+void geofenceCallbackDispatcher() {
+  debugPrint('🔥🔥🔥 CALLBACK DISPATCHER CALLED! 🔥🔥🔥');
+  debugPrint('Timestamp: ${DateTime.now()}');
+
+  GeofenceForegroundService().handleTrigger(
+    backgroundTriggerHandler: (zoneID, triggerType) async {
+      debugPrint('═══════════════════════════════════════════════');
+      debugPrint('🎯🎯🎯 GEOFENCE EVENT TRIGGERED! 🎯🎯🎯');
+      debugPrint('Timestamp: ${DateTime.now()}');
+      debugPrint('Zone ID: $zoneID');
+      debugPrint('Trigger Type: $triggerType');
+      debugPrint('═══════════════════════════════════════════════');
+
+      if (triggerType == GeofenceEventType.enter) {
+        debugPrint('✅ ENTER event detected - processing alarm...');
+
+        try {
+          // CRITICAL: Initialize Hive in the background isolate
+          debugPrint('📦 Initializing Hive in background isolate...');
+          await AlarmStorageService.init();
+          debugPrint('✅ Hive initialized in background isolate');
+
+          // Get alarm from storage
+          debugPrint('🔍 Looking for alarm with ID: $zoneID');
+          final alarm = AlarmStorageService.getAlarm(zoneID);
+
+          if (alarm != null) {
+            debugPrint('📱 Found alarm: ${alarm.name}');
+            debugPrint('   - Address: ${alarm.address}');
+            debugPrint('   - Sound Level: ${alarm.soundLevel}');
+            debugPrint('   - Active: ${alarm.isActive}');
+
+            // Show notification
+            debugPrint('📢 Sending notification...');
+            await _showBackgroundNotification(alarm);
+            debugPrint('✅ Notification sent');
+
+            // Start alarm sound
+            debugPrint('🔊 Starting alarm sound...');
+            await AlarmSoundService().startAlarm(
+              alarmId: alarm.id,
+              soundLevel: alarm.soundLevel,
+            );
+            debugPrint('✅ Alarm sound started successfully');
+          } else {
+            debugPrint('❌❌❌ ALARM NOT FOUND FOR ZONE: $zoneID ❌❌❌');
+            debugPrint('Available alarm IDs in storage:');
+            final allAlarms = AlarmStorageService.getAllAlarms();
+            for (var a in allAlarms) {
+              debugPrint('   - ${a.id} (${a.name}, Active: ${a.isActive})');
+            }
+          }
+        } catch (e, stackTrace) {
+          debugPrint('❌❌❌ ERROR IN GEOFENCE CALLBACK ❌❌❌');
+          debugPrint('Error: $e');
+          debugPrint('Stack trace: $stackTrace');
+        }
+      } else if (triggerType == GeofenceEventType.exit) {
+        debugPrint('🚪 EXIT event detected');
+      } else if (triggerType == GeofenceEventType.dwell) {
+        debugPrint('⏱️ DWELL event detected');
+      }
+
+      debugPrint('═══════════════════════════════════════════════');
+      return Future.value(true);
+    },
+  );
+}
+
+/// Show notification from background isolate
+Future<void> _showBackgroundNotification(Alarm alarm) async {
+  debugPrint('📢 Creating notification plugin...');
+  final notificationsPlugin = FlutterLocalNotificationsPlugin();
+
+  // Initialize notifications in background isolate
+  debugPrint('📢 Initializing notifications in background isolate...');
+  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const iosSettings = DarwinInitializationSettings(
+    requestAlertPermission: true,
+    requestBadgePermission: true,
+    requestSoundPermission: true,
+  );
+  const initSettings = InitializationSettings(
+    android: androidSettings,
+    iOS: iosSettings,
+  );
+
+  try {
+    await notificationsPlugin.initialize(initSettings);
+    debugPrint('✅ Notifications initialized in background');
+  } catch (e) {
+    debugPrint('⚠️ Error initializing notifications (may already be initialized): $e');
+  }
+
+  const androidDetails = AndroidNotificationDetails(
+    'alarm_geofence_channel',
+    'Location Alarms',
+    channelDescription: 'Notifications for location-based alarms',
+    importance: Importance.max,
+    priority: Priority.max,
+    playSound: true,
+    enableVibration: true,
+    fullScreenIntent: true,
+    category: AndroidNotificationCategory.alarm,
+  );
+
+  const iosDetails = DarwinNotificationDetails(
+    presentAlert: true,
+    presentBadge: true,
+    presentSound: true,
+    presentBanner: true,
+    presentList: true,
+    interruptionLevel: InterruptionLevel.critical,
+  );
+
+  const details = NotificationDetails(
+    android: androidDetails,
+    iOS: iosDetails,
+  );
+
+  debugPrint('📢 Showing notification...');
+  debugPrint('   - ID: ${alarm.id.hashCode}');
+  debugPrint('   - Title: ⏰ ${alarm.name}');
+  debugPrint('   - Body: You have arrived at ${alarm.address}');
+
+  try {
+    await notificationsPlugin.show(
+      alarm.id.hashCode,
+      '⏰ ${alarm.name}',
+      'You have arrived at ${alarm.address}',
+      details,
+    );
+    debugPrint('✅ Notification shown successfully');
+  } catch (e, stackTrace) {
+    debugPrint('❌ Error showing notification: $e');
+    debugPrint('Stack trace: $stackTrace');
+  }
+}
+
+/// Service to manage background geofencing for location-based alarms using native APIs
+/// Works on both iOS and Android even when app is killed/locked
 class GeofenceAlarmService {
   static final GeofenceAlarmService _instance = GeofenceAlarmService._internal();
   factory GeofenceAlarmService() => _instance;
   GeofenceAlarmService._internal();
 
-  // Geofencing instance
-  final _geofencing = Geofencing.instance;
-
-  // Local notifications instance
   final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
-  // Alarm sound service instance
   final _alarmSoundService = AlarmSoundService();
 
-  // Stream controller for geofence events
-  final StreamController<GeofenceRegion> _geofenceStreamController =
-      StreamController<GeofenceRegion>.broadcast();
-
   bool _isInitialized = false;
-  bool _isRunning = false;
-
-  // Throttle notification updates to prevent spam
-  DateTime? _lastNotificationUpdate;
-  static const _notificationUpdateInterval = Duration(seconds: 5);
+  bool _isServiceRunning = false;
 
   /// Initialize the geofence service
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    debugPrint('🔔 Initializing GeofenceAlarmService...');
+    debugPrint('🔔 Initializing Native GeofenceAlarmService...');
 
-    // Initialize local notifications
     await _initializeNotifications();
 
-    // Set up geofencing options using user settings
-    _geofencing.setup(
-      interval: SettingsService.updateIntervalInMillis, // User-configured interval
-      accuracy: SettingsService.accuracyInMeters, // User-configured accuracy
-      statusChangeDelay: SettingsService.updateIntervalInMillis, // Match interval
-      allowsMockLocation: false, // Don't allow mock locations
-      printsDebugLog: true, // Print debug logs
-    );
-
-    // Set up geofence callbacks
-    _geofencing.addGeofenceStatusChangedListener(_onGeofenceStatusChanged);
-    _geofencing.addLocationChangedListener(_onLocationChanged);
-    _geofencing.addLocationServicesStatusChangedListener(
-        _onLocationServicesStatusChanged);
-    _geofencing.addGeofenceErrorCallbackListener(_onError);
-
     _isInitialized = true;
-    debugPrint('✅ GeofenceAlarmService initialized');
+    debugPrint('✅ Native GeofenceAlarmService initialized');
+  }
+
+  /// Check if location permissions are granted
+  Future<bool> _checkLocationPermissions() async {
+    debugPrint('🔍 Checking location permissions...');
+
+    // Check if location services are enabled
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      debugPrint('❌ Location services are disabled');
+      return false;
+    }
+
+    // Check permission status
+    final permission = await Geolocator.checkPermission();
+    debugPrint('📍 Current permission: $permission');
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      debugPrint('❌ Location permission not granted');
+      return false;
+    }
+
+    // For geofencing, background permission is highly recommended
+    final hasBackground = await LocationService.hasBackgroundPermission();
+    if (!hasBackground) {
+      debugPrint('⚠️ Background location permission not granted - geofencing may not work when app is closed');
+      debugPrint('⚠️ User should grant "Always" permission in settings');
+    } else {
+      debugPrint('✅ Background location permission granted');
+    }
+
+    return true;
   }
 
   /// Initialize local notifications
   Future<void> _initializeNotifications() async {
-    // Android initialization settings
+    debugPrint('🔔 Starting notification initialization...');
+
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    // iOS initialization settings
     const iosSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
+      defaultPresentAlert: true,
+      defaultPresentSound: true,
+      defaultPresentBadge: true,
     );
 
     const initSettings = InitializationSettings(
@@ -83,60 +233,96 @@ class GeofenceAlarmService {
       iOS: iosSettings,
     );
 
-    await _notificationsPlugin.initialize(
-      initSettings,
-      onDidReceiveNotificationResponse: _onNotificationTapped,
-    );
+    await _notificationsPlugin.initialize(initSettings);
 
-    // Request permissions for Android 13+ and iOS
+    // Request permissions
     if (Platform.isAndroid) {
       final androidPlugin = _notificationsPlugin
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
       await androidPlugin?.requestNotificationsPermission();
+
+      // Create notification channels
+      await androidPlugin?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'alarm_geofence_channel',
+          'Location Alarms',
+          description: 'Notifications for location-based alarms',
+          importance: Importance.max,
+          playSound: true,
+          enableVibration: true,
+        ),
+      );
+
+      await androidPlugin?.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'alarm_monitoring_channel',
+          'Background Monitoring',
+          description: 'Background location monitoring',
+          importance: Importance.low,
+          playSound: false,
+        ),
+      );
     }
 
     if (Platform.isIOS) {
-      await _notificationsPlugin
+      final iosPlugin = _notificationsPlugin
           .resolvePlatformSpecificImplementation<
-              IOSFlutterLocalNotificationsPlugin>()
-          ?.requestPermissions(
-            alert: true,
-            badge: true,
-            sound: true,
-          );
+              IOSFlutterLocalNotificationsPlugin>();
+
+      await iosPlugin?.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    }
+  }
+
+  /// Start geofencing service if not already running
+  Future<void> _ensureServiceStarted() async {
+    if (_isServiceRunning) {
+      debugPrint('✅ Geofence service already running');
+      return;
     }
 
-    // Create notification channels for Android
-    if (Platform.isAndroid) {
-      // Channel for alarm triggers (high priority)
-      const alarmChannel = AndroidNotificationChannel(
-        'alarm_geofence_channel',
-        'Location Alarms',
-        description: 'Notifications for location-based alarms',
-        importance: Importance.max,
-        playSound: true,
-        enableVibration: true,
+    debugPrint('═══════════════════════════════════════════════');
+    debugPrint('🚀 STARTING GEOFENCE FOREGROUND SERVICE');
+    debugPrint('   - Service ID: 525600');
+    debugPrint('   - Channel ID: alarm_monitoring_channel');
+    debugPrint('   - Callback: geofenceCallbackDispatcher');
+    debugPrint('═══════════════════════════════════════════════');
+
+    try {
+      final started = await GeofenceForegroundService().startGeofencingService(
+        contentTitle: 'WakeMeUp Active',
+        contentText: 'Monitoring location alarms',
+        notificationChannelId: 'alarm_monitoring_channel',
+        serviceId: 525600,
+        callbackDispatcher: geofenceCallbackDispatcher,
       );
 
-      // Channel for ongoing monitoring (low priority, persistent, silent)
-      const monitoringChannel = AndroidNotificationChannel(
-        'alarm_monitoring_channel',
-        'Background Monitoring',
-        description: 'Silent notification showing the app is monitoring your location in the background',
-        importance: Importance.low, // Low - visible but silent
-        playSound: false,
-        enableVibration: false,
-        showBadge: true,
-        enableLights: false,
-      );
+      _isServiceRunning = started;
 
-      final androidPlugin = _notificationsPlugin
-          .resolvePlatformSpecificImplementation<
-              AndroidFlutterLocalNotificationsPlugin>();
-
-      await androidPlugin?.createNotificationChannel(alarmChannel);
-      await androidPlugin?.createNotificationChannel(monitoringChannel);
+      if (started) {
+        debugPrint('═══════════════════════════════════════════════');
+        debugPrint('✅✅✅ GEOFENCE SERVICE STARTED SUCCESSFULLY ✅✅✅');
+        debugPrint('   - The service is now monitoring for geofence events');
+        debugPrint('   - You should see a persistent notification (Android)');
+        debugPrint('═══════════════════════════════════════════════');
+      } else {
+        debugPrint('═══════════════════════════════════════════════');
+        debugPrint('❌❌❌ FAILED TO START GEOFENCE SERVICE ❌❌❌');
+        debugPrint('   - Check location permissions');
+        debugPrint('   - Check if foreground service is configured in manifest');
+        debugPrint('═══════════════════════════════════════════════');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('═══════════════════════════════════════════════');
+      debugPrint('❌❌❌ EXCEPTION STARTING GEOFENCE SERVICE ❌❌❌');
+      debugPrint('Error: $e');
+      debugPrint('Stack trace: $stackTrace');
+      debugPrint('═══════════════════════════════════════════════');
+      _isServiceRunning = false;
     }
   }
 
@@ -146,49 +332,131 @@ class GeofenceAlarmService {
       await initialize();
     }
 
-    debugPrint('📍 Starting geofencing for alarm: ${alarm.name}');
+    debugPrint('📍 Starting native geofencing for alarm: ${alarm.name}');
 
     try {
-      // Check and request location permission
-      final permission = await _geofencing.getLocationPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        final requestedPermission = await _geofencing.requestLocationPermission();
-        if (requestedPermission == LocationPermission.denied ||
-            requestedPermission == LocationPermission.deniedForever) {
-          debugPrint('❌ Location permission denied');
-          return false;
-        }
+      // Check location permissions first
+      final hasPermission = await _checkLocationPermissions();
+      if (!hasPermission) {
+        debugPrint('❌ Location permissions not granted - cannot start geofence');
+        return false;
       }
 
-      // Create circular geofence region from alarm
-      final region = GeofenceRegion.circular(
+      // Ensure service is started
+      await _ensureServiceStarted();
+
+      if (!_isServiceRunning) {
+        debugPrint('❌ Service failed to start - cannot add geofence');
+        return false;
+      }
+
+      // Enforce minimum radius for iOS (200m) and Android (100m)
+      double effectiveRadius = alarm.radius;
+      if (Platform.isIOS && effectiveRadius < 200) {
+        debugPrint('⚠️ iOS requires minimum 200m radius, adjusting from ${effectiveRadius}m');
+        effectiveRadius = 200;
+      } else if (Platform.isAndroid && effectiveRadius < 100) {
+        debugPrint('⚠️ Android requires minimum 100m radius, adjusting from ${effectiveRadius}m');
+        effectiveRadius = 100;
+      }
+
+      debugPrint('═══════════════════════════════════════════════');
+      debugPrint('📍 CREATING GEOFENCE ZONE');
+      debugPrint('   - Alarm ID: ${alarm.id}');
+      debugPrint('   - Alarm Name: ${alarm.name}');
+      debugPrint('   - Location: ${alarm.latitude}, ${alarm.longitude}');
+      debugPrint('   - Radius: ${effectiveRadius}m');
+      debugPrint('   - Platform: ${Platform.operatingSystem}');
+      debugPrint('═══════════════════════════════════════════════');
+
+      // Create zone with explicit triggers
+      final zone = geofence.Zone(
         id: alarm.id,
-        data: {'name': alarm.name, 'address': alarm.address},
-        center: LatLng(alarm.latitude, alarm.longitude),
-        radius: alarm.radius,
-        loiteringDelay: 60000, // 1 minute
+        radius: effectiveRadius,
+        coordinates: [
+          LatLng(
+            Angle.degree(alarm.latitude),
+            Angle.degree(alarm.longitude),
+          ),
+        ],
+        triggers: [
+          GeofenceEventType.enter,  // Trigger when entering zone
+        ],
       );
 
-      // Add region
-      _geofencing.addRegion(region);
+      debugPrint('📍 Adding geofence zone to service...');
+      await GeofenceForegroundService().addGeofenceZone(zone: zone);
 
-      // Start the service if not already running
-      if (!_isRunning) {
-        await _geofencing.start();
-        _isRunning = true;
+      debugPrint('═══════════════════════════════════════════════');
+      debugPrint('✅ GEOFENCE ZONE ADDED SUCCESSFULLY');
+      debugPrint('   - Alarm: ${alarm.name}');
+      debugPrint('   - Zone ID: ${alarm.id}');
+      debugPrint('═══════════════════════════════════════════════');
 
-        // Show initial persistent notification only when first starting
-        await _showPersistentNotification();
-        _lastNotificationUpdate = DateTime.now();
+      // CRITICAL: Check if user is already inside the geofence
+      debugPrint('🔍 Checking if you are already inside the geofence...');
+      try {
+        final currentPosition = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 5),
+        );
+
+        // Calculate distance from current location to alarm location
+        final distance = Geolocator.distanceBetween(
+          currentPosition.latitude,
+          currentPosition.longitude,
+          alarm.latitude,
+          alarm.longitude,
+        );
+
+        debugPrint('📏 Your location: ${currentPosition.latitude}, ${currentPosition.longitude}');
+        debugPrint('📏 Alarm location: ${alarm.latitude}, ${alarm.longitude}');
+        debugPrint('📏 Distance to geofence center: ${distance.toStringAsFixed(0)}m');
+        debugPrint('📏 Geofence radius: ${effectiveRadius}m');
+
+        if (distance <= effectiveRadius) {
+          debugPrint('═══════════════════════════════════════════════');
+          debugPrint('⚠️⚠️⚠️ YOU ARE ALREADY INSIDE THE GEOFENCE! ⚠️⚠️⚠️');
+          debugPrint('🚨 TRIGGERING ALARM IMMEDIATELY!');
+          debugPrint('═══════════════════════════════════════════════');
+
+          // Trigger the alarm immediately
+          await _triggerAlarmNow(alarm);
+        } else {
+          debugPrint('✅ You are OUTSIDE the geofence (${distance.toStringAsFixed(0)}m away)');
+          debugPrint('   The alarm will trigger when you move within ${effectiveRadius}m');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Could not check current position: $e');
+        debugPrint('   Alarm will trigger when you enter the geofence');
       }
-      // If already running, the location callback will update the notification
 
-      debugPrint('✅ Geofencing started for: ${alarm.name}');
       return true;
-    } catch (e) {
-      debugPrint('❌ Error starting geofencing: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error starting native geofencing: $e');
+      debugPrint('Stack trace: $stackTrace');
       return false;
+    }
+  }
+
+  /// Trigger alarm immediately (when already inside geofence or for testing)
+  Future<void> _triggerAlarmNow(Alarm alarm) async {
+    debugPrint('🚨 Triggering alarm NOW: ${alarm.name}');
+
+    try {
+      // Show notification
+      await _showBackgroundNotification(alarm);
+      debugPrint('✅ Notification shown');
+
+      // Start alarm sound
+      await _alarmSoundService.startAlarm(
+        alarmId: alarm.id,
+        soundLevel: alarm.soundLevel,
+      );
+      debugPrint('✅ Alarm sound started');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error triggering alarm: $e');
+      debugPrint('Stack trace: $stackTrace');
     }
   }
 
@@ -197,28 +465,22 @@ class GeofenceAlarmService {
     debugPrint('🛑 Stopping geofencing for alarm: $alarmId');
 
     try {
-      // Stop alarm sound if this alarm is currently playing
+      // Stop alarm sound if playing
       if (_alarmSoundService.currentAlarmId == alarmId) {
         await _alarmSoundService.stopAlarm();
-        debugPrint('🔇 Alarm sound stopped for: $alarmId');
       }
 
-      _geofencing.removeRegionById(alarmId);
+      // Remove zone
+      await GeofenceForegroundService().removeGeofenceZone(zoneId: alarmId);
+
       debugPrint('✅ Geofence removed for: $alarmId');
 
-      // Update or remove persistent notification
-      if (_geofencing.regions.isEmpty && _isRunning) {
-        await _geofencing.stop();
-        _isRunning = false;
-        await _cancelPersistentNotification();
-        _lastNotificationUpdate = null; // Reset throttle
-        debugPrint('🛑 Geofence service stopped (no active geofences)');
-      } else {
-        // Update notification to reflect remaining alarms
-        // Force update by resetting throttle timestamp
-        _lastNotificationUpdate = null;
-        await _showPersistentNotification();
-        _lastNotificationUpdate = DateTime.now();
+      // Check if we should stop the service
+      final activeAlarms = AlarmStorageService.getActiveAlarms();
+      if (activeAlarms.isEmpty) {
+        await GeofenceForegroundService().stopGeofencingService();
+        _isServiceRunning = false;
+        debugPrint('🛑 Geofence service stopped (no active alarms)');
       }
     } catch (e) {
       debugPrint('❌ Error stopping geofencing: $e');
@@ -230,17 +492,9 @@ class GeofenceAlarmService {
     debugPrint('🛑 Stopping all geofencing...');
 
     try {
-      // Stop any playing alarm sound
       await _alarmSoundService.stopAlarm();
-
-      if (_isRunning) {
-        await _geofencing.stop(keepsRegions: false);
-        _isRunning = false;
-      }
-
-      // Cancel persistent notification
-      await _cancelPersistentNotification();
-
+      await GeofenceForegroundService().stopGeofencingService();
+      _isServiceRunning = false;
       debugPrint('✅ All geofencing stopped');
     } catch (e) {
       debugPrint('❌ Error stopping all geofencing: $e');
@@ -252,28 +506,35 @@ class GeofenceAlarmService {
     debugPrint('🔄 Syncing geofences with stored alarms...');
 
     try {
-      // Get all active alarms from storage
+      // Stop current service
+      await GeofenceForegroundService().stopGeofencingService();
+      _isServiceRunning = false;
+
+      // Get all active alarms
       final activeAlarms = AlarmStorageService.getActiveAlarms();
 
-      // Stop service to clear existing geofences
-      if (_isRunning) {
-        await _geofencing.stop(keepsRegions: false);
-        _isRunning = false;
+      if (activeAlarms.isEmpty) {
+        debugPrint('✅ No active alarms to sync');
+        return;
       }
 
-      // Add geofences for all active alarms
+      // Start service
+      await _ensureServiceStarted();
+
+      // Add all zones
       for (final alarm in activeAlarms) {
-        await startGeofencing(alarm);
-      }
+        final zone = geofence.Zone(
+          id: alarm.id,
+          radius: alarm.radius,
+          coordinates: [
+            LatLng(
+              Angle.degree(alarm.latitude),
+              Angle.degree(alarm.longitude),
+            ),
+          ],
+        );
 
-      // Show or update persistent notification
-      if (activeAlarms.isNotEmpty) {
-        _lastNotificationUpdate = null; // Force update
-        await _showPersistentNotification();
-        _lastNotificationUpdate = DateTime.now();
-      } else {
-        await _cancelPersistentNotification();
-        _lastNotificationUpdate = null;
+        await GeofenceForegroundService().addGeofenceZone(zone: zone);
       }
 
       debugPrint('✅ Synced ${activeAlarms.length} active alarms');
@@ -282,474 +543,82 @@ class GeofenceAlarmService {
     }
   }
 
-  /// Reload settings and restart geofencing
-  /// Call this when GPS settings (accuracy or interval) change
+  /// Reload settings (kept for compatibility)
   Future<void> reloadSettings() async {
-    debugPrint('🔄 Reloading geofence settings...');
+    debugPrint('🔄 Reloading settings...');
+    // Resync geofences
+    await syncGeofencesWithAlarms();
+  }
+
+  /// Check if service is running
+  bool get isRunning => _isServiceRunning;
+
+  /// Get active regions (stub for compatibility)
+  Set<geofence.Zone> get activeRegions => {};
+
+  /// Test the alarm trigger manually (for debugging)
+  Future<void> testAlarmTrigger(String alarmId) async {
+    debugPrint('═══════════════════════════════════════════════');
+    debugPrint('🧪 MANUALLY TESTING ALARM TRIGGER');
+    debugPrint('   - Alarm ID: $alarmId');
+    debugPrint('═══════════════════════════════════════════════');
 
     try {
-      // Update geofencing setup with new settings
-      _geofencing.setup(
-        interval: SettingsService.updateIntervalInMillis,
-        accuracy: SettingsService.accuracyInMeters,
-        statusChangeDelay: SettingsService.updateIntervalInMillis,
-        allowsMockLocation: false,
-        printsDebugLog: true,
-      );
-
-      // If service is running, restart it with new settings
-      if (_isRunning) {
-        await syncGeofencesWithAlarms();
+      // Initialize Hive
+      if (!AlarmStorageService.isInitialized) {
+        await AlarmStorageService.init();
       }
 
-      debugPrint('✅ Settings reloaded successfully');
-    } catch (e) {
-      debugPrint('❌ Error reloading settings: $e');
-    }
-  }
-
-  /// Callback when geofence status changes
-  Future<void> _onGeofenceStatusChanged(
-    GeofenceRegion region,
-    GeofenceStatus status,
-    Location location,
-  ) async {
-    debugPrint('🎯 Geofence status changed:');
-    debugPrint('  - Region ID: ${region.id}');
-    debugPrint('  - Status: ${status.name}');
-    debugPrint('  - Location: ${location.latitude}, ${location.longitude}');
-
-    // Handle entering geofence (alarm triggered)
-    if (status == GeofenceStatus.enter) {
-      await _handleAlarmTriggered(region.id);
-    }
-
-    // Broadcast event
-    _geofenceStreamController.add(region);
-  }
-
-  /// Callback when location changes
-  void _onLocationChanged(Location location) {
-    // Only update notification on Android
-    // iOS shows banners for every update, so we skip it there
-    if (Platform.isAndroid) {
-      _updatePersistentNotificationWithDistance(location);
-    }
-  }
-
-  /// Callback when location services status changes
-  void _onLocationServicesStatusChanged(LocationServicesStatus status) {
-    debugPrint('🌍 Location services status: ${status.name}');
-
-    if (status == LocationServicesStatus.disabled) {
-      _showNotification(
-        'Location Services Disabled',
-        'Please enable location services to use location alarms',
-        importance: Importance.high,
-      );
-    }
-  }
-
-  /// Callback when error occurs
-  void _onError(Object error, StackTrace stackTrace) {
-    debugPrint('❌ Geofence error: $error');
-    debugPrint('Stack trace: $stackTrace');
-  }
-
-  /// Handle alarm triggered (user entered geofence)
-  Future<void> _handleAlarmTriggered(String alarmId) async {
-    debugPrint('⏰ Alarm triggered: $alarmId');
-
-    try {
-      // Get alarm details from storage
+      // Get alarm
       final alarm = AlarmStorageService.getAlarm(alarmId);
       if (alarm == null) {
-        debugPrint('⚠️ Alarm not found in storage: $alarmId');
+        debugPrint('❌ Alarm not found: $alarmId');
         return;
       }
 
-      // Show notification
-      await _showAlarmNotification(alarm);
+      debugPrint('✅ Found alarm: ${alarm.name}');
 
-      // Start playing alarm sound with vibration
-      await _alarmSoundService.startAlarm(
-        alarmId: alarm.id,
-        soundLevel: alarm.soundLevel,
-      );
+      // Trigger the alarm
+      await _triggerAlarmNow(alarm);
 
-      debugPrint('🔊 Alarm sound and vibration started');
-
-    } catch (e) {
-      debugPrint('❌ Error handling alarm trigger: $e');
+      debugPrint('✅ Test alarm triggered successfully');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error testing alarm: $e');
+      debugPrint('Stack trace: $stackTrace');
     }
+
+    debugPrint('═══════════════════════════════════════════════');
   }
 
-  /// Show alarm notification
-  Future<void> _showAlarmNotification(Alarm alarm) async {
-    // Determine sound level
-    final soundLevel = alarm.soundLevel.toLowerCase();
-    final importance = soundLevel == 'loud'
-        ? Importance.max
-        : soundLevel == 'medium'
-            ? Importance.high
-            : Importance.defaultImportance;
+  /// Print diagnostic information about geofencing status
+  Future<void> printDiagnostics() async {
+    debugPrint('═══════════════════════════════════════════════');
+    debugPrint('📊 GEOFENCE SERVICE DIAGNOSTICS');
+    debugPrint('═══════════════════════════════════════════════');
+    debugPrint('Service running: $_isServiceRunning');
+    debugPrint('Service initialized: $_isInitialized');
 
-    final priority = soundLevel == 'loud'
-        ? Priority.max
-        : soundLevel == 'medium'
-            ? Priority.high
-            : Priority.defaultPriority;
+    // Check permissions
+    final hasPermission = await _checkLocationPermissions();
+    debugPrint('Location permissions: $hasPermission');
 
-    // Android notification details
-    final androidDetails = AndroidNotificationDetails(
-      'alarm_geofence_channel',
-      'Location Alarms',
-      channelDescription: 'Notifications for location-based alarms',
-      importance: importance,
-      priority: priority,
-      playSound: true,
-      enableVibration: true,
-      fullScreenIntent: true, // Show as full screen
-      category: AndroidNotificationCategory.alarm,
-      visibility: NotificationVisibility.public,
-    );
-
-    // iOS notification details
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      interruptionLevel: InterruptionLevel.critical,
-    );
-
-    final details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    // Show notification
-    await _notificationsPlugin.show(
-      alarm.id.hashCode,
-      '⏰ ${alarm.name}',
-      'You have arrived at ${alarm.address}',
-      details,
-      payload: alarm.id,
-    );
-
-    debugPrint('✅ Notification shown for alarm: ${alarm.name}');
-  }
-
-  /// Show persistent notification for active alarms
-  Future<void> _showPersistentNotification() async {
+    // Get all active alarms
     final activeAlarms = AlarmStorageService.getActiveAlarms();
+    debugPrint('Active alarms: ${activeAlarms.length}');
 
-    if (activeAlarms.isEmpty) {
-      await _cancelPersistentNotification();
-      return;
+    for (var alarm in activeAlarms) {
+      debugPrint('  - ${alarm.name} (ID: ${alarm.id})');
+      debugPrint('    Location: ${alarm.latitude}, ${alarm.longitude}');
+      debugPrint('    Radius: ${alarm.radius}m');
     }
 
-    final alarmCount = activeAlarms.length;
-    final title = alarmCount == 1
-        ? 'WakeMeUp is Monitoring'
-        : 'WakeMeUp: $alarmCount Alarms Active';
-
-    final body = alarmCount == 1
-        ? '${activeAlarms.first.name} • Tracking your location'
-        : 'Will wake you when you arrive';
-
-    // Android notification details - ongoing/persistent
-    const androidDetails = AndroidNotificationDetails(
-      'alarm_monitoring_channel',
-      'Active Alarm Monitoring',
-      channelDescription: 'Shows when location alarms are actively monitoring',
-      importance: Importance.low, // Low importance - visible but silent
-      priority: Priority.low, // Low priority - stays in tray, minimal intrusion
-      playSound: false,
-      enableVibration: false,
-      ongoing: true, // Makes it persistent (can't swipe away)
-      autoCancel: false,
-      showWhen: false,
-      icon: '@mipmap/ic_launcher',
-      category: AndroidNotificationCategory.service,
-      visibility: NotificationVisibility.public,
-      onlyAlertOnce: true, // Don't alert on updates
-      silent: true, // Completely silent
-      subText: 'Tap to open app', // Helpful subtext
-    );
-
-    // iOS notification details - completely silent, no banner
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: false, // Don't show banner
-      presentBadge: false, // Don't show badge
-      presentSound: false, // No sound
-      presentBanner: false, // Explicitly disable banner
-      presentList: true, // Only show in notification center
-      threadIdentifier: 'alarm_monitoring', // Group notifications
-      interruptionLevel: InterruptionLevel.passive, // Passive = silent delivery
-    );
-
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _notificationsPlugin.show(
-      999999, // Fixed ID for persistent notification
-      title,
-      body,
-      details,
-    );
-
-    debugPrint('✅ Persistent notification shown: $alarmCount active alarm(s)');
-  }
-
-  /// Update persistent notification with live distance information
-  void _updatePersistentNotificationWithDistance(Location currentLocation) {
-    final activeAlarms = AlarmStorageService.getActiveAlarms();
-
-    if (activeAlarms.isEmpty) return;
-
-    // Throttle updates - only update every 5 seconds to avoid spam
-    final now = DateTime.now();
-    if (_lastNotificationUpdate != null &&
-        now.difference(_lastNotificationUpdate!) < _notificationUpdateInterval) {
-      return; // Skip this update
-    }
-    _lastNotificationUpdate = now;
-
-    // For single alarm, calculate and show distance
-    if (activeAlarms.length == 1) {
-      final alarm = activeAlarms.first;
-      final distance = _calculateDistance(
-        currentLocation.latitude,
-        currentLocation.longitude,
-        alarm.latitude,
-        alarm.longitude,
-      );
-
-      final distanceText = _formatDistance(distance);
-      final title = 'WakeMeUp is Monitoring';
-      final body = '$distanceText from ${alarm.name}';
-
-      // Calculate progress (0-100) based on distance vs radius
-      final progress = _calculateProgress(distance, alarm.radius);
-
-      // Android notification with progress bar
-      final androidDetails = AndroidNotificationDetails(
-        'alarm_monitoring_channel',
-        'Active Alarm Monitoring',
-        channelDescription: 'Shows when location alarms are actively monitoring',
-        importance: Importance.low, // Low importance - visible but silent
-        priority: Priority.low, // Low priority - stays in tray, minimal intrusion
-        playSound: false,
-        enableVibration: false,
-        ongoing: true,
-        autoCancel: false,
-        showWhen: false,
-        icon: '@mipmap/ic_launcher',
-        category: AndroidNotificationCategory.service,
-        visibility: NotificationVisibility.public,
-        showProgress: true,
-        maxProgress: 100,
-        progress: progress,
-        onlyAlertOnce: true, // Don't alert on updates
-        silent: true, // Completely silent updates
-        subText: 'Tap to open app', // Helpful subtext
-      );
-
-      const iosDetails = DarwinNotificationDetails(
-        presentAlert: false, // Don't show banner
-        presentBadge: false, // Don't show badge
-        presentSound: false, // No sound
-        presentBanner: false, // Explicitly disable banner
-        presentList: true, // Only show in notification center
-        threadIdentifier: 'alarm_monitoring', // Group notifications
-        interruptionLevel: InterruptionLevel.passive, // Passive = silent delivery
-      );
-
-      final details = NotificationDetails(
-        android: androidDetails,
-        iOS: iosDetails,
-      );
-
-      // Update notification silently - same ID ensures it updates in place
-      _notificationsPlugin.show(
-        999999,
-        title,
-        body,
-        details,
-      );
-    } else {
-      // For multiple alarms, show count and closest distance
-      double? closestDistance;
-      String? closestAlarmName;
-
-      for (final alarm in activeAlarms) {
-        final distance = _calculateDistance(
-          currentLocation.latitude,
-          currentLocation.longitude,
-          alarm.latitude,
-          alarm.longitude,
-        );
-
-        if (closestDistance == null || distance < closestDistance) {
-          closestDistance = distance;
-          closestAlarmName = alarm.name;
-        }
-      }
-
-      final title = 'WakeMeUp: ${activeAlarms.length} Alarms Active';
-      final body = closestDistance != null
-          ? '${_formatDistance(closestDistance)} from $closestAlarmName'
-          : 'Will wake you when you arrive';
-
-      const androidDetails = AndroidNotificationDetails(
-        'alarm_monitoring_channel',
-        'Active Alarm Monitoring',
-        channelDescription: 'Shows when location alarms are actively monitoring',
-        importance: Importance.low, // Low importance - visible but silent
-        priority: Priority.low, // Low priority - stays in tray, minimal intrusion
-        playSound: false,
-        enableVibration: false,
-        ongoing: true,
-        autoCancel: false,
-        showWhen: false,
-        icon: '@mipmap/ic_launcher',
-        category: AndroidNotificationCategory.service,
-        visibility: NotificationVisibility.public,
-        onlyAlertOnce: true, // Don't alert on updates
-        silent: true, // Completely silent updates
-        subText: 'Tap to open app', // Helpful subtext
-      );
-
-      const iosDetails = DarwinNotificationDetails(
-        presentAlert: false, // Don't show banner
-        presentBadge: false, // Don't show badge
-        presentSound: false, // No sound
-        presentBanner: false, // Explicitly disable banner
-        presentList: true, // Only show in notification center
-        threadIdentifier: 'alarm_monitoring', // Group notifications
-        interruptionLevel: InterruptionLevel.passive, // Passive = silent delivery
-      );
-
-      final details = NotificationDetails(
-        android: androidDetails,
-        iOS: iosDetails,
-      );
-
-      // Update notification silently - same ID ensures it updates in place
-      _notificationsPlugin.show(
-        999999,
-        title,
-        body,
-        details,
-      );
-    }
-  }
-
-  /// Calculate distance between two coordinates in meters
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const earthRadius = 6371000; // meters
-    final dLat = _degreesToRadians(lat2 - lat1);
-    final dLon = _degreesToRadians(lon2 - lon1);
-
-    final a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_degreesToRadians(lat1)) *
-            cos(_degreesToRadians(lat2)) *
-            sin(dLon / 2) *
-            sin(dLon / 2);
-
-    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    return earthRadius * c;
-  }
-
-  /// Convert degrees to radians
-  double _degreesToRadians(double degrees) {
-    return degrees * pi / 180;
-  }
-
-  /// Format distance for display
-  String _formatDistance(double meters) {
-    if (meters < 1000) {
-      return '${meters.round()}m';
-    } else {
-      final km = meters / 1000;
-      return '${km.toStringAsFixed(1)}km';
-    }
-  }
-
-  /// Calculate progress percentage (0-100) based on distance vs radius
-  /// Returns higher percentage as you get closer
-  int _calculateProgress(double currentDistance, double targetRadius) {
-    // Use 5x the radius as the "max distance" for progress calculation
-    final maxDistance = targetRadius * 5;
-
-    if (currentDistance >= maxDistance) {
-      return 0; // Very far away
-    } else if (currentDistance <= targetRadius) {
-      return 100; // Inside the geofence
-    } else {
-      // Linear progress from max distance to radius
-      final progress = ((maxDistance - currentDistance) / (maxDistance - targetRadius) * 100);
-      return progress.clamp(0, 100).round();
-    }
-  }
-
-  /// Cancel persistent notification
-  Future<void> _cancelPersistentNotification() async {
-    await _notificationsPlugin.cancel(999999);
-    debugPrint('✅ Persistent notification cancelled');
-  }
-
-  /// Show generic notification
-  Future<void> _showNotification(
-    String title,
-    String body, {
-    Importance importance = Importance.defaultImportance,
-  }) async {
-    final androidDetails = AndroidNotificationDetails(
-      'alarm_geofence_channel',
-      'Location Alarms',
-      importance: importance,
-      priority: importance == Importance.max ? Priority.max : Priority.high,
-    );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-    );
-
-    final details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _notificationsPlugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      title,
-      body,
-      details,
-    );
-  }
-
-  /// Callback when notification is tapped
-  void _onNotificationTapped(NotificationResponse response) {
-    debugPrint('🔔 Notification tapped: ${response.payload}');
-    // You can navigate to a specific screen here if needed
-  }
-
-  /// Get stream of geofence events
-  Stream<GeofenceRegion> get geofenceStream => _geofenceStreamController.stream;
-
-  /// Check if service is running
-  bool get isRunning => _isRunning;
-
-  /// Get list of active geofence regions
-  Set<GeofenceRegion> get activeRegions => _geofencing.regions;
-
-  /// Dispose resources
-  void dispose() {
-    _geofenceStreamController.close();
+    debugPrint('═══════════════════════════════════════════════');
+    debugPrint('IMPORTANT: For geofencing to work:');
+    debugPrint('1. Location services must be ON');
+    debugPrint('2. App needs "Always" location permission');
+    debugPrint('3. You must physically MOVE INTO the geofence zone');
+    debugPrint('4. Wait 1-2 minutes after entering for system to detect');
+    debugPrint('5. Make sure "WakeMeUp Active" notification is showing (Android)');
+    debugPrint('═══════════════════════════════════════════════');
   }
 }

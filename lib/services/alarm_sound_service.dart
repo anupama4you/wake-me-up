@@ -19,6 +19,14 @@ class AlarmSoundService {
     required String alarmId,
     String soundLevel = 'loud',
   }) async {
+    debugPrint('═══════════════════════════════════════════════');
+    debugPrint('🔊 START ALARM SOUND CALLED');
+    debugPrint('   - Alarm ID: $alarmId');
+    debugPrint('   - Sound Level: $soundLevel');
+    debugPrint('   - Currently playing: $_isPlaying');
+    debugPrint('   - Current alarm ID: $_currentAlarmId');
+    debugPrint('═══════════════════════════════════════════════');
+
     // Don't start if already playing this alarm
     if (_isPlaying && _currentAlarmId == alarmId) {
       debugPrint('⏰ Alarm already playing for: $alarmId');
@@ -28,24 +36,28 @@ class AlarmSoundService {
     // Stop any existing alarm first
     await stopAlarm();
 
-    debugPrint('🔊 Starting alarm sound: $alarmId (level: $soundLevel)');
+    debugPrint('🔊 Initializing alarm sound...');
     _currentAlarmId = alarmId;
     _isPlaying = true;
 
     try {
       // Initialize audio player
+      debugPrint('🎵 Creating AudioPlayer instance...');
       _audioPlayer = AudioPlayer();
 
       // Set volume based on sound level
       final volume = _getVolumeFromLevel(soundLevel);
+      debugPrint('🎵 Setting volume to: $volume');
       await _audioPlayer!.setVolume(volume);
 
       // Set to loop continuously
+      debugPrint('🎵 Setting release mode to loop...');
       await _audioPlayer!.setReleaseMode(ReleaseMode.loop);
 
       // Use a default system alarm sound URL
       // This is a built-in Android/iOS alarm tone
       final source = AssetSource('sounds/alarm.mp3');
+      debugPrint('🎵 Playing sound from: sounds/alarm.mp3');
 
       // Play the sound
       await _audioPlayer!.play(source);
@@ -53,12 +65,18 @@ class AlarmSoundService {
       debugPrint('✅ Alarm sound started successfully');
 
       // Start vibration pattern
+      debugPrint('📳 Starting vibration...');
       await _startVibration(soundLevel);
-    } catch (e) {
-      debugPrint('❌ Error starting alarm sound: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌❌❌ ERROR STARTING ALARM SOUND ❌❌❌');
+      debugPrint('Error: $e');
+      debugPrint('Stack trace: $stackTrace');
       // Fallback: just vibrate
+      debugPrint('🔄 Attempting vibration fallback...');
       await _startVibration(soundLevel);
     }
+
+    debugPrint('═══════════════════════════════════════════════');
   }
 
   /// Stop playing alarm sound and vibration
@@ -150,19 +168,20 @@ class AlarmSoundService {
 
   /// Get vibration pattern from sound level
   /// Pattern format: [wait, vibrate, wait, vibrate, ...]
+  /// Pattern repeats continuously when used with repeat: 0
   List<int> _getVibrationPattern(String soundLevel) {
     switch (soundLevel.toLowerCase()) {
       case 'loud':
-        // Aggressive pattern: 500ms vibrate, 200ms pause
-        return [0, 500, 200, 500, 200];
+        // Aggressive pattern: 1000ms vibrate, 100ms pause (nearly continuous)
+        return [0, 1000, 100];
       case 'medium':
-        // Moderate pattern: 300ms vibrate, 400ms pause
-        return [0, 300, 400, 300, 400];
+        // Moderate pattern: 700ms vibrate, 300ms pause
+        return [0, 700, 300];
       case 'soft':
-        // Gentle pattern: 200ms vibrate, 600ms pause
-        return [0, 200, 600, 200, 600];
+        // Gentle pattern: 500ms vibrate, 500ms pause
+        return [0, 500, 500];
       default:
-        return [0, 500, 200, 500, 200];
+        return [0, 1000, 100];
     }
   }
 
