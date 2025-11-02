@@ -31,36 +31,34 @@ void geofenceCallbackDispatcher() {
         debugPrint('✅ ENTER event detected - processing alarm...');
 
         try {
-          // CRITICAL: Initialize Hive in the background isolate
-          debugPrint('📦 Initializing Hive in background isolate...');
-          await AlarmStorageService.init();
-          debugPrint('✅ Hive initialized in background isolate');
+          // CRITICAL: Parse alarm data from zone ID
+          // Format: alarmId|||alarmName|||address|||soundLevel
+          debugPrint('📦 Parsing alarm data from zone ID: $zoneID');
+          final parts = zoneID.split('|||');
 
-          // Get alarm from storage
-          debugPrint('🔍 Looking for alarm with ID: $zoneID');
-          final alarm = AlarmStorageService.getAlarm(zoneID);
+          if (parts.length >= 4) {
+            final alarmId = parts[0];
+            final alarmName = parts[1];
+            final address = parts[2];
+            final soundLevel = parts[3];
 
-          if (alarm != null) {
-            debugPrint('📱 Found alarm: ${alarm.name}');
-            debugPrint('   - Address: ${alarm.address}');
-            debugPrint('   - Sound Level: ${alarm.soundLevel}');
-            debugPrint('   - Active: ${alarm.isActive}');
+            debugPrint('✅ Parsed alarm data');
+            debugPrint('📱 Alarm: $alarmName');
+            debugPrint('   - Address: $address');
+            debugPrint('   - Sound Level: $soundLevel');
 
             // Show notification with sound (this works in background)
             debugPrint('📢 Sending notification with alarm sound...');
-            await _showBackgroundNotification(alarm);
-            debugPrint('✅ Notification sent - alarm sound will play through notification');
-
-            // Note: We DON'T start AlarmSoundService in background isolate
-            // because it won't work when app is closed.
-            // The notification system handles the sound in background.
+            await _showBackgroundNotificationSimple(
+              alarmId: alarmId,
+              alarmName: alarmName,
+              address: address,
+            );
+            debugPrint('✅ Notification sent - alarm sound will play');
           } else {
-            debugPrint('❌❌❌ ALARM NOT FOUND FOR ZONE: $zoneID ❌❌❌');
-            debugPrint('Available alarm IDs in storage:');
-            final allAlarms = AlarmStorageService.getAllAlarms();
-            for (var a in allAlarms) {
-              debugPrint('   - ${a.id} (${a.name}, Active: ${a.isActive})');
-            }
+            debugPrint('❌❌❌ INVALID ZONE ID FORMAT ❌❌❌');
+            debugPrint('Expected: alarmId|||name|||address|||soundLevel');
+            debugPrint('Got: $zoneID');
           }
         } catch (e, stackTrace) {
           debugPrint('❌❌❌ ERROR IN GEOFENCE CALLBACK ❌❌❌');
@@ -79,7 +77,94 @@ void geofenceCallbackDispatcher() {
   );
 }
 
-/// Show notification from background isolate
+/// Show notification from background isolate (simple version without Alarm object)
+Future<void> _showBackgroundNotificationSimple({
+  required String alarmId,
+  required String alarmName,
+  required String address,
+}) async {
+  debugPrint('📢 Creating notification plugin...');
+  final notificationsPlugin = FlutterLocalNotificationsPlugin();
+
+  // Initialize notifications in background isolate
+  debugPrint('📢 Initializing notifications in background isolate...');
+  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+  const iosSettings = DarwinInitializationSettings(
+    requestAlertPermission: true,
+    requestBadgePermission: true,
+    requestSoundPermission: true,
+  );
+  const initSettings = InitializationSettings(
+    android: androidSettings,
+    iOS: iosSettings,
+  );
+
+  try {
+    await notificationsPlugin.initialize(initSettings);
+    debugPrint('✅ Notifications initialized in background');
+  } catch (e) {
+    debugPrint('⚠️ Error initializing notifications: $e');
+  }
+
+  // Android notification with custom alarm sound
+  const androidDetails = AndroidNotificationDetails(
+    'alarm_geofence_channel',
+    'Location Alarms',
+    channelDescription: 'Notifications for location-based alarms',
+    importance: Importance.max,
+    priority: Priority.max,
+    playSound: true,
+    sound: RawResourceAndroidNotificationSound('alarm'),
+    enableVibration: true,
+    fullScreenIntent: true,
+    category: AndroidNotificationCategory.alarm,
+    ongoing: true,
+    autoCancel: false,
+    onlyAlertOnce: false,
+    channelShowBadge: true,
+    styleInformation: BigTextStyleInformation(
+      'You have arrived at your destination. Tap to open app.',
+      contentTitle: '⏰ Location Alarm',
+    ),
+  );
+
+  // iOS notification with critical interruption level
+  const iosDetails = DarwinNotificationDetails(
+    presentAlert: true,
+    presentBadge: true,
+    presentSound: true,
+    sound: 'alarm.mp3',
+    presentBanner: true,
+    presentList: true,
+    interruptionLevel: InterruptionLevel.critical,
+    categoryIdentifier: 'alarm_category',
+  );
+
+  const details = NotificationDetails(
+    android: androidDetails,
+    iOS: iosDetails,
+  );
+
+  debugPrint('📢 Showing notification...');
+  debugPrint('   - ID: ${alarmId.hashCode}');
+  debugPrint('   - Title: ⏰ $alarmName');
+  debugPrint('   - Body: You have arrived at $address');
+
+  try {
+    await notificationsPlugin.show(
+      alarmId.hashCode,
+      '⏰ $alarmName',
+      'You have arrived at $address',
+      details,
+    );
+    debugPrint('✅ Notification shown successfully');
+  } catch (e, stackTrace) {
+    debugPrint('❌ Error showing notification: $e');
+    debugPrint('Stack trace: $stackTrace');
+  }
+}
+
+/// Show notification from background isolate (original version with Alarm object)
 Future<void> _showBackgroundNotification(Alarm alarm) async {
   debugPrint('📢 Creating notification plugin...');
   final notificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -381,9 +466,14 @@ class GeofenceAlarmService {
       debugPrint('   - Platform: ${Platform.operatingSystem}');
       debugPrint('═══════════════════════════════════════════════');
 
+      // CRITICAL: Encode alarm data in zone ID for background isolate access
+      // Format: alarmId|||alarmName|||address|||soundLevel
+      final encodedZoneId = '${alarm.id}|||${alarm.name}|||${alarm.address}|||${alarm.soundLevel}';
+      debugPrint('📦 Encoded zone ID: $encodedZoneId');
+
       // Create zone with explicit triggers
       final zone = geofence.Zone(
-        id: alarm.id,
+        id: encodedZoneId, // Use encoded ID with alarm data
         radius: effectiveRadius,
         coordinates: [
           LatLng(
@@ -392,18 +482,36 @@ class GeofenceAlarmService {
           ),
         ],
         triggers: [
-          GeofenceEventType.enter,  // Trigger when entering zone
+          GeofenceEventType.enter,  // ONLY trigger when entering zone
         ],
+        notificationResponsivenessMs: 0, // Android: Trigger as fast as possible (0ms)
       );
 
       debugPrint('📍 Adding geofence zone to service...');
+      debugPrint('   - Triggers: ENTER ONLY');
+      debugPrint('   - Android responsiveness: 0ms (immediate)');
+      debugPrint('   - iOS: System managed (typically 1-2 min delay)');
+
       await GeofenceForegroundService().addGeofenceZone(zone: zone);
+
+      debugPrint('✅ Geofence zone registered with system');
 
       debugPrint('═══════════════════════════════════════════════');
       debugPrint('✅ GEOFENCE ZONE ADDED SUCCESSFULLY');
       debugPrint('   - Alarm: ${alarm.name}');
       debugPrint('   - Zone ID: ${alarm.id}');
       debugPrint('═══════════════════════════════════════════════');
+      debugPrint('');
+      debugPrint('⚠️ IMPORTANT TESTING NOTES:');
+      debugPrint('1. Make sure you are OUTSIDE the geofence before testing');
+      debugPrint('2. iOS geofencing has 1-2 minute delay after crossing boundary');
+      debugPrint('3. Move at least ${effectiveRadius + 50}m away before entering');
+      debugPrint('4. Walk/drive normally - don\'t stand still at the boundary');
+      debugPrint('5. Keep app in background (don\'t kill it)');
+      debugPrint('6. Check logs when you enter the zone');
+      debugPrint('═══════════════════════════════════════════════');
+
+      // Note: Alarm data is encoded in the zone ID, no need for separate caching
 
       // CRITICAL: Check if user is already inside the geofence
       debugPrint('🔍 Checking if you are already inside the geofence...');
@@ -488,8 +596,16 @@ class GeofenceAlarmService {
         await _alarmSoundService.stopAlarm();
       }
 
-      // Remove zone
-      await GeofenceForegroundService().removeGeofenceZone(zoneId: alarmId);
+      // Get the alarm to construct the encoded zone ID
+      final alarm = AlarmStorageService.getAlarm(alarmId);
+      if (alarm != null) {
+        final encodedZoneId = '${alarm.id}|||${alarm.name}|||${alarm.address}|||${alarm.soundLevel}';
+        // Remove zone using encoded ID
+        await GeofenceForegroundService().removeGeofenceZone(zoneId: encodedZoneId);
+      } else {
+        // Fallback: try with just the alarm ID
+        await GeofenceForegroundService().removeGeofenceZone(zoneId: alarmId);
+      }
 
       debugPrint('✅ Geofence removed for: $alarmId');
 
