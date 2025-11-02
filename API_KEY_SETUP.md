@@ -1,122 +1,109 @@
-# API Key Security Setup
+# API Key Setup Guide
 
-This project uses environment variables to securely manage API keys.
+## Security Notice
+
+This project uses Google Maps API which requires an API key. **Never commit your actual API key to version control.**
 
 ## Setup Instructions
 
-### 1. Environment File (.env)
+### 1. Get Your Google Maps API Key
 
-Your Google Maps API key should be stored in the `.env` file at the root of the project:
+1. Go to [Google Cloud Console](https://console.cloud.google.com/google/maps-apis/)
+2. Create a new project or select an existing one
+3. Enable the following APIs:
+   - Maps SDK for Android
+   - Maps SDK for iOS
+   - Places API
+   - Geocoding API
+4. Create an API key (Credentials → Create Credentials → API Key)
+5. **Restrict your API key** for security:
+   - Android: Restrict by package name (`com.example.wakemeup`)
+   - iOS: Restrict by bundle identifier
 
-```bash
-GOOGLE_API_KEY=your_api_key_here
+### 2. Configure API Key Locally
+
+**Option A: Using .env.local (Recommended)**
+
+1. Create a file named `.env.local` in the project root (this file is gitignored)
+2. Add your API key:
+```
+GOOGLE_API_KEY=YOUR_ACTUAL_API_KEY_HERE
 ```
 
-**Important:** The `.env` file is already in `.gitignore` and should **NEVER** be committed to version control.
+**Option B: Using local.properties (Android only)**
 
-### 2. Android Setup
-
-The API key is automatically injected into `AndroidManifest.xml` at build time.
-
-**How it works:**
-- The API key is read from `android/local.properties`
-- It's injected into the manifest via `manifestPlaceholders`
-- The file `android/local.properties` is ignored by git
-
-**Manual setup (if needed):**
-```bash
-# Add to android/local.properties
-echo "GOOGLE_MAPS_API_KEY=your_api_key_here" >> android/local.properties
+Add to `android/local.properties`:
+```
+GOOGLE_MAPS_API_KEY=YOUR_ACTUAL_API_KEY_HERE
 ```
 
-### 3. iOS Setup
+**Option C: Using Environment Variables**
 
-The API key is read from `Info.plist` at runtime.
+Set environment variable:
+```bash
+export GOOGLE_MAPS_API_KEY=YOUR_ACTUAL_API_KEY_HERE
+```
 
-**Automatic setup:**
-Run the injection script before building:
+### 3. Build Priority
+
+The app checks for API keys in this order:
+
+1. `.env.local` (gitignored, for local development)
+2. `.env` (committed with placeholder)
+3. `local.properties` (Android only)
+4. Environment variables
+
+### 4. iOS Additional Step
+
+For iOS builds, run the injection script before building:
 ```bash
 ./ios/scripts/inject_api_key.sh
 ```
 
-**How it works:**
-- The script reads the API key from `.env`
-- It updates `ios/Runner/Info.plist` with the key
-- The app reads it from `Info.plist` at runtime
+This script reads from `.env.local` or `.env` and injects the key into `Info.plist`.
 
-**To add to Xcode build phase:**
-1. Open `ios/Runner.xcworkspace` in Xcode
-2. Select the Runner target
-3. Go to Build Phases
-4. Click "+" → New Run Script Phase
-5. Add: `"${SRCROOT}/scripts/inject_api_key.sh"`
-6. Move it before "Compile Sources"
+## Files in Version Control
 
-## Security Best Practices
+✅ **Committed to Git:**
+- `.env` - Contains placeholder `YOUR_API_KEY_HERE`
+- `API_KEY_SETUP.md` - This file
+- `ios/scripts/inject_api_key.sh` - Key injection script
 
-✅ **DO:**
-- Keep API key in `.env` file
-- Add `.env` to `.gitignore`
-- Use environment variables for CI/CD
-- Restrict API key usage in Google Cloud Console
-
-❌ **DON'T:**
-- Commit `.env` file to git
-- Hardcode API keys in source files
-- Share API keys publicly
-- Use the same key for dev and production
-
-## Files That Use API Key
-
-### Secure (Environment-based):
-- `.env` - Source of truth (not committed)
-- `android/local.properties` - Android (not committed)
-- `ios/Runner/Info.plist` - iOS (API key injected at build time)
-
-### Implementation Files:
-- `android/app/build.gradle.kts` - Reads from local.properties
-- `android/app/src/main/AndroidManifest.xml` - Uses placeholder `${GOOGLE_MAPS_API_KEY}`
-- `ios/Runner/AppDelegate.swift` - Reads from Info.plist
-- `lib/services/google_places_service.dart` - Uses dotenv package
-
-## For Team Members
-
-When cloning this repository:
-
-1. Copy `.env.example` to `.env` (if provided)
-2. Add your Google Maps API key to `.env`
-3. For Android: Run `echo "GOOGLE_MAPS_API_KEY=your_key" >> android/local.properties`
-4. For iOS: Run `./ios/scripts/inject_api_key.sh` before building
-
-## Verification
-
-To verify the setup is correct:
-
-```bash
-# Check that API key is NOT in git
-git grep "AIzaSy" # Should only find placeholders, not actual keys
-
-# Check .env exists
-cat .env | grep GOOGLE_API_KEY
-
-# Check Android local.properties
-cat android/local.properties | grep GOOGLE_MAPS_API_KEY
-
-# Check iOS Info.plist (after running script)
-grep -A1 "GOOGLE_MAPS_API_KEY" ios/Runner/Info.plist
-```
+❌ **NOT Committed (Gitignored):**
+- `.env.local` - Your actual API keys
+- `.env.*.local` - Environment-specific keys
+- `android/local.properties` - Local Android config
 
 ## CI/CD Setup
 
-For GitHub Actions, CircleCI, etc.:
+For automated builds, set the `GOOGLE_MAPS_API_KEY` environment variable in your CI/CD platform:
 
-```yaml
-# Add GOOGLE_API_KEY as a secret in your CI/CD platform
-# Then inject it during build:
+- **GitHub Actions**: Repository Secrets
+- **Codemagic**: Environment variables
+- **Fastlane**: Use `.env.secret` or CI environment
 
-- name: Setup API Key
-  run: |
-    echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" > .env
-    echo "GOOGLE_MAPS_API_KEY=${{ secrets.GOOGLE_API_KEY }}" >> android/local.properties
-    ./ios/scripts/inject_api_key.sh
-```
+## Troubleshooting
+
+### Map not loading
+- Check that your API key is correctly set
+- Verify API key restrictions match your app's package/bundle ID
+- Ensure required APIs are enabled in Google Cloud Console
+
+### Build errors
+- Run `flutter clean`
+- For iOS: Run `./ios/scripts/inject_api_key.sh`
+- For Android: Rebuild with `flutter build apk`
+
+### iOS build can't find key
+- Make sure `.env.local` exists with valid key
+- Run the injection script manually
+- Check that `Info.plist` has `$(GOOGLE_MAPS_API_KEY)` not a hardcoded value
+
+## Security Best Practices
+
+1. ✅ Never commit actual API keys
+2. ✅ Use `.env.local` for local development
+3. ✅ Restrict API keys by platform (Android/iOS)
+4. ✅ Set usage quotas in Google Cloud Console
+5. ✅ Rotate keys if accidentally exposed
+6. ✅ Use different keys for dev/staging/production

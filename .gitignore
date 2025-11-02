@@ -65,6 +65,10 @@ android/gradlew
 android/gradlew.bat
 android/.cxx/
 
-# Environment files
+# Environment files - KEEP .env IN REPO WITH PLACEHOLDER, IGNORE LOCAL OVERRIDES
 .env.local
 .env.*.local
+
+# API Keys and Secrets - DO NOT COMMIT
+# Note: .env template is committed with placeholder values
+# Create .env.local with real keys for local development

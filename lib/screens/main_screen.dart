@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/alarm.dart';
 import '../services/alarm_storage_service.dart';
 import '../services/geofence_service.dart';
+import '../utils/error_handler.dart';
 import 'home_screen.dart';
 import 'map_view_screen.dart';
 import 'settings_screen.dart';
@@ -108,58 +109,119 @@ class _MainScreenState extends State<MainScreen> {
   void _onItemTapped(int index) => setState(() => _selectedIndex = index);
 
   Future<void> _toggleAlarm(String id, bool active) async {
+    final alarm = _alarms.firstWhere((a) => a.id == id);
+    final previousState = alarm.isActive;
+
+    // Optimistically update UI
     setState(() {
-      final alarm = _alarms.firstWhere((a) => a.id == id);
       alarm.isActive = active;
     });
 
-    // Save changes to storage
     try {
-      final alarm = _alarms.firstWhere((a) => a.id == id);
+      // Save changes to storage
       await AlarmStorageService.updateAlarm(alarm);
-    } catch (e) {
-      // Error updating alarm - logged in console
-      debugPrint('❌ Error updating alarm: $e');
-    }
 
-    // Handle geofencing based on alarm state
-    try {
+      // Handle geofencing based on alarm state
       final geofenceService = GeofenceAlarmService();
       await geofenceService.initialize();
 
       if (active) {
         // Start geofencing for the activated alarm
-        final alarm = _alarms.firstWhere((a) => a.id == id);
-        await geofenceService.startGeofencing(alarm);
+        final success = await geofenceService.startGeofencing(alarm);
+
+        if (!success) {
+          // Revert state on failure
+          if (mounted) {
+            setState(() {
+              alarm.isActive = previousState;
+            });
+            await AlarmStorageService.updateAlarm(alarm);
+
+            ErrorHandler.showErrorDialog(
+              context,
+              title: 'Failed to Activate Alarm',
+              message: 'Could not activate geofencing. Please check:\n\n'
+                  '• Location services are enabled\n'
+                  '• Background location permission is granted ("Always Allow")\n'
+                  '• The app has permission to run in background',
+            );
+          }
+          return;
+        }
+
         debugPrint('✅ Geofencing started for: ${alarm.name}');
+
+        if (mounted) {
+          ErrorHandler.showSuccessSnackBar(
+            context,
+            'Alarm "${alarm.name}" activated',
+          );
+        }
       } else {
         // Stop geofencing for the deactivated alarm
         await geofenceService.stopGeofencing(id);
         debugPrint('🛑 Geofencing stopped for alarm: $id');
+
+        if (mounted) {
+          ErrorHandler.showSuccessSnackBar(
+            context,
+            'Alarm "${alarm.name}" deactivated',
+          );
+        }
       }
-    } catch (e) {
-      debugPrint('⚠️ Geofencing toggle error: $e');
-      // Error handled - logged in console
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error toggling alarm: $e');
+      debugPrint('Stack trace: $stackTrace');
+
+      // Revert state on error
+      if (mounted) {
+        setState(() {
+          alarm.isActive = previousState;
+        });
+
+        ErrorHandler.showErrorSnackBar(
+          context,
+          'Failed to ${active ? "activate" : "deactivate"} alarm. Please try again.',
+        );
+      }
     }
   }
 
   Future<void> _deleteAlarm(String id) async {
+    final alarm = _alarms.firstWhere((a) => a.id == id);
+    final alarmName = alarm.name;
+
+    // Optimistically remove from UI
     setState(() => _alarms.removeWhere((a) => a.id == id));
 
-    // Delete from storage
     try {
+      // Delete from storage
       await AlarmStorageService.deleteAlarm(id);
-    } catch (e) {
-      debugPrint('❌ Error deleting alarm: $e');
-    }
 
-    // Stop geofencing for deleted alarm
-    try {
+      // Stop geofencing for deleted alarm
       final geofenceService = GeofenceAlarmService();
       await geofenceService.stopGeofencing(id);
       debugPrint('🛑 Geofencing stopped for deleted alarm: $id');
-    } catch (e) {
-      debugPrint('⚠️ Error stopping geofencing: $e');
+
+      if (mounted) {
+        ErrorHandler.showSuccessSnackBar(
+          context,
+          'Alarm "$alarmName" deleted',
+        );
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error deleting alarm: $e');
+      debugPrint('Stack trace: $stackTrace');
+
+      // Reload alarms to restore state on error
+      await _loadAlarms();
+
+      if (mounted) {
+        ErrorHandler.showErrorSnackBar(
+          context,
+          'Failed to delete alarm. Please try again.',
+        );
+      }
     }
   }
 

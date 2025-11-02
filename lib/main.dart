@@ -14,11 +14,19 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    // Load environment variables from .env file
-    await dotenv.load(fileName: ".env");
+    // Load environment variables - prioritize .env.local for development
+    // .env.local is gitignored and contains actual API keys
+    // .env is committed with placeholders for CI/CD and new developers
+    try {
+      await dotenv.load(fileName: ".env.local");
+      debugPrint('✅ Loaded .env.local (local development)');
+    } catch (e) {
+      await dotenv.load(fileName: ".env");
+      debugPrint('✅ Loaded .env (default configuration)');
+    }
   } catch (e) {
     // Log initialization errors
-    debugPrint('Error loading .env: $e');
+    debugPrint('❌ Error loading environment variables: $e');
   }
 
   try {

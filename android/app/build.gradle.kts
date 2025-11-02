@@ -12,10 +12,35 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
 
-// Get Google Maps API key from local.properties or environment variable
-val googleMapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY")
-    ?: System.getenv("GOOGLE_MAPS_API_KEY")
-    ?: ""
+// Load API key from .env.local (preferred) or .env file
+val envLocalFile = rootProject.file("../../.env.local")
+val envFile = rootProject.file("../../.env")
+var googleMapsApiKey = ""
+
+// Try .env.local first (gitignored, contains real keys)
+if (envLocalFile.exists()) {
+    envLocalFile.readLines().forEach { line ->
+        if (line.startsWith("GOOGLE_API_KEY=")) {
+            googleMapsApiKey = line.substringAfter("GOOGLE_API_KEY=").trim()
+        }
+    }
+}
+
+// Fallback to .env if .env.local doesn't exist or doesn't have the key
+if (googleMapsApiKey.isEmpty() && envFile.exists()) {
+    envFile.readLines().forEach { line ->
+        if (line.startsWith("GOOGLE_API_KEY=") && !line.startsWith("#")) {
+            googleMapsApiKey = line.substringAfter("GOOGLE_API_KEY=").trim()
+        }
+    }
+}
+
+// Final fallback to local.properties or environment variable
+if (googleMapsApiKey.isEmpty()) {
+    googleMapsApiKey = localProperties.getProperty("GOOGLE_MAPS_API_KEY")
+        ?: System.getenv("GOOGLE_MAPS_API_KEY")
+        ?: ""
+}
 
 android {
     namespace = "com.example.wakemeup"

@@ -11,6 +11,7 @@ import '../../services/geofence_service.dart';
 import '../../services/alarm_storage_service.dart';
 import '../../services/settings_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/error_handler.dart';
 
 class MapScreen extends StatefulWidget {
   final Alarm? existingAlarm;
@@ -111,15 +112,74 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _requestPermissionAndLocation() async {
-    final hasPermission = await LocationService.requestPermission();
-    if (!hasPermission) {
-      if (!mounted) return;
-      // Permission denied - service will handle notification
-      return;
+    // Use detailed permission request for better error handling
+    final result = await LocationService.requestPermissionDetailed();
+
+    if (!mounted) return;
+
+    // Handle permission result with user-friendly messages
+    switch (result) {
+      case LocationPermissionResult.denied:
+        ErrorHandler.showErrorSnackBar(
+          context,
+          'Location permission denied. Please grant permission to create location-based alarms.',
+        );
+        return;
+
+      case LocationPermissionResult.deniedForever:
+        await ErrorHandler.showErrorDialog(
+          context,
+          title: 'Location Permission Required',
+          message: 'Location permission has been permanently denied. '
+              'Please enable it in Settings:\n\n'
+              'Settings → WakeMeUp → Location → Always',
+          actionLabel: 'Open Settings',
+          onAction: () async {
+            await LocationService.openLocationSettings();
+          },
+        );
+        return;
+
+      case LocationPermissionResult.serviceDisabled:
+        ErrorHandler.showErrorSnackBar(
+          context,
+          'Location services are disabled. Please enable them in your device settings.',
+        );
+        return;
+
+      case LocationPermissionResult.backgroundDenied:
+        ErrorHandler.showWarningSnackBar(
+          context,
+          'Background location not granted. Alarms may not work when app is closed. '
+              'Please enable "Always Allow" in Settings.',
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: 'Settings',
+            textColor: Colors.black87,
+            onPressed: () async {
+              await LocationService.openLocationSettings();
+            },
+          ),
+        );
+        // Continue anyway - basic location is granted
+        break;
+
+      case LocationPermissionResult.granted:
+        // All good, continue
+        break;
     }
 
     final position = await LocationService.getCurrentPosition();
-    if (position != null && mounted) {
+    if (position == null) {
+      if (!mounted) return;
+      ErrorHandler.showErrorSnackBar(
+        context,
+        'Unable to get current location. Please check your GPS and try again.',
+      );
+      return;
+    }
+
+    if (mounted) {
       final currentLoc = LatLng(position.latitude, position.longitude);
       setState(() {
         _currentLocation = currentLoc;
@@ -364,7 +424,10 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _saveAlarm(bool activate) async {
     if (_selectedLocation == null) {
-      // No location selected - fail silently
+      ErrorHandler.showErrorSnackBar(
+        context,
+        'Please select a location on the map first',
+      );
       return;
     }
 
@@ -386,27 +449,60 @@ class _MapScreenState extends State<MapScreen> {
       isActive: activate,
     );
 
-    // If editing an existing alarm that was active, stop the old geofence first
-    if (isEditing && wasActive) {
-      await GeofenceAlarmService().stopGeofencing(alarm.id);
+    try {
+      // If editing an existing alarm that was active, stop the old geofence first
+      if (isEditing && wasActive) {
+        await GeofenceAlarmService().stopGeofencing(alarm.id);
+      }
+
+      // Save/update alarm
+      if (isEditing) {
+        await AlarmStorageService.updateAlarm(alarm);
+      } else {
+        await AlarmStorageService.saveAlarm(alarm);
+      }
+
+      // Start geofencing if activated
+      if (activate) {
+        final success = await GeofenceAlarmService().startGeofencing(alarm);
+        if (!success) {
+          if (!mounted) return;
+          ErrorHandler.showErrorDialog(
+            context,
+            title: 'Geofencing Error',
+            message: 'Failed to activate alarm. Please check that:\n\n'
+                '• Location services are enabled\n'
+                '• Background location permission is granted\n'
+                '• You have granted "Always Allow" location access\n\n'
+                'The alarm has been saved but is not active.',
+          );
+          return;
+        }
+      }
+
+      if (!mounted) return;
+
+      // Show success message
+      ErrorHandler.showSuccessSnackBar(
+        context,
+        activate
+            ? 'Alarm activated successfully!'
+            : 'Alarm saved successfully',
+      );
+
+      // Return to previous screen
+      Navigator.of(context).pop(alarm);
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error saving alarm: $e');
+      debugPrint('Stack trace: $stackTrace');
+
+      if (!mounted) return;
+      await ErrorHandler.handleStorageError(
+        context,
+        isEditing ? 'update alarm' : 'save alarm',
+        e,
+      );
     }
-
-    // Save/update alarm
-    if (isEditing) {
-      await AlarmStorageService.updateAlarm(alarm);
-    } else {
-      await AlarmStorageService.saveAlarm(alarm);
-    }
-
-    // Start geofencing if activated
-    if (activate) {
-      await GeofenceAlarmService().startGeofencing(alarm);
-    }
-
-    if (!mounted) return;
-
-    // No app notification - phone notification will show if alarm is active
-    Navigator.of(context).pop(alarm);
   }
 
   @override

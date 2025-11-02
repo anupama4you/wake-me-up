@@ -3,7 +3,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../models/alarm.dart';
 import '../../services/alarm_storage_service.dart';
 import '../../services/geofence_service.dart';
-import '../active_alarm_screen.dart';
+import '../alarm_detail_map_screen.dart';
 
 class AlarmSettingsScreen extends StatefulWidget {
   final String locationName;
@@ -136,11 +136,11 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
     if (!mounted) return;
 
     if (startNow) {
-      // Navigate to active alarm screen and wait for result
+      // Navigate to active alarm detail screen and wait for result
       final result = await Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => ActiveAlarmScreen(alarm: alarm),
+          builder: (context) => AlarmDetailMapScreen(alarm: alarm),
         ),
       );
 

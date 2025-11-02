@@ -5,6 +5,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
 import '../theme/app_theme.dart';
+import '../utils/adaptive_location_tracker.dart';
 
 /// Live map view showing current location and destination
 class AlarmDetailMapScreen extends StatefulWidget {
@@ -22,7 +23,8 @@ class AlarmDetailMapScreen extends StatefulWidget {
 class _AlarmDetailMapScreenState extends State<AlarmDetailMapScreen> {
   GoogleMapController? _mapController;
   Position? _currentPosition;
-  Timer? _locationUpdateTimer;
+  StreamSubscription<Position>? _locationSubscription;
+  final AdaptiveLocationTracker _adaptiveTracker = AdaptiveLocationTracker();
 
   // Map markers and circles
   final Set<Marker> _markers = {};
@@ -37,45 +39,37 @@ class _AlarmDetailMapScreenState extends State<AlarmDetailMapScreen> {
 
   @override
   void dispose() {
-    _locationUpdateTimer?.cancel();
+    _locationSubscription?.cancel();
+    _adaptiveTracker.stopTracking();
     _mapController?.dispose();
     super.dispose();
   }
 
-  /// Start tracking location
+  /// Start adaptive location tracking (battery optimized)
   void _startLocationTracking() {
-    // Get initial location
-    _updateCurrentLocation();
+    debugPrint('🔋 Starting adaptive location tracking for alarm: ${widget.alarm.name}');
 
-    // Update every 2 seconds for smooth tracking
-    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      _updateCurrentLocation();
-    });
-  }
+    // Start adaptive tracking based on destination
+    final stream = _adaptiveTracker.startTracking(
+      targetLatitude: widget.alarm.latitude,
+      targetLongitude: widget.alarm.longitude,
+    );
 
-  /// Update current location
-  Future<void> _updateCurrentLocation() async {
-    try {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        return;
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      if (mounted) {
-        setState(() {
-          _currentPosition = position;
-          _updateMapMarkers();
-          _updateMapCamera();
-        });
-      }
-    } catch (e) {
-      debugPrint('Location update error: $e');
-    }
+    // Listen to adaptive position updates
+    _locationSubscription = stream.listen(
+      (position) {
+        if (mounted) {
+          setState(() {
+            _currentPosition = position;
+            _updateMapMarkers();
+            _updateMapCamera();
+          });
+        }
+      },
+      onError: (error) {
+        debugPrint('❌ Location tracking error: $error');
+      },
+    );
   }
 
   /// Update map markers

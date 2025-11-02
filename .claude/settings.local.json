@@ -13,7 +13,8 @@
       "Bash(./ios/scripts/inject_api_key.sh:*)",
       "Bash(flutter doctor:*)",
       "Bash(flutter devices:*)",
-      "Bash(pod install)"
+      "Bash(pod install)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []
