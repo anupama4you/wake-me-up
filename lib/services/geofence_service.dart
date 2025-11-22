@@ -11,6 +11,7 @@ import '../models/alarm.dart';
 import 'alarm_storage_service.dart';
 import 'alarm_sound_service.dart';
 import 'location_service.dart';
+import 'native_ios_geofence_service.dart';
 
 /// Top-level callback dispatcher for geofence events (must be top-level)
 @pragma('vm:entry-point')
@@ -258,6 +259,7 @@ class GeofenceAlarmService {
       FlutterLocalNotificationsPlugin();
 
   final _alarmSoundService = AlarmSoundService();
+  final _nativeIOSGeofenceService = NativeIOSGeofenceService();
 
   bool _isInitialized = false;
   bool _isServiceRunning = false;
@@ -439,6 +441,35 @@ class GeofenceAlarmService {
         return false;
       }
 
+      // USE NATIVE iOS GEOFENCING for iOS platform
+      if (Platform.isIOS) {
+        debugPrint('📱 Using NATIVE iOS Core Location geofencing');
+
+        // Set up callback to handle geofence enter events from native iOS
+        _nativeIOSGeofenceService.onGeofenceEntered = (id, name) async {
+          debugPrint('🎯🎯🎯 NATIVE iOS GEOFENCE TRIGGERED IN FLUTTER! 🎯🎯🎯');
+          debugPrint('   - ID: $id');
+          debugPrint('   - Name: $name');
+
+          // Get the alarm and trigger it
+          final triggeredAlarm = AlarmStorageService.getAlarm(id);
+          if (triggeredAlarm != null) {
+            await _triggerAlarmNow(triggeredAlarm);
+          }
+        };
+
+        final success = await _nativeIOSGeofenceService.startGeofencing(alarm);
+        if (success) {
+          debugPrint('✅ Native iOS geofence started successfully');
+          _isServiceRunning = true;
+
+          // Also check if already inside the geofence
+          await _checkIfAlreadyInsideGeofence(alarm);
+        }
+        return success;
+      }
+
+      // For Android, use geofence_foreground_service package
       // Ensure service is started
       await _ensureServiceStarted();
 
@@ -586,6 +617,49 @@ class GeofenceAlarmService {
     }
   }
 
+  /// Check if user is already inside the geofence and trigger alarm if so
+  Future<void> _checkIfAlreadyInsideGeofence(Alarm alarm) async {
+    debugPrint('🔍 Checking if you are already inside the geofence...');
+    try {
+      final currentPosition = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 5),
+      );
+
+      // Calculate distance from current location to alarm location
+      final distance = Geolocator.distanceBetween(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        alarm.latitude,
+        alarm.longitude,
+      );
+
+      // Use effective radius (minimum 200m for iOS)
+      final effectiveRadius = Platform.isIOS ? (alarm.radius < 200 ? 200.0 : alarm.radius) : alarm.radius;
+
+      debugPrint('📏 Your location: ${currentPosition.latitude}, ${currentPosition.longitude}');
+      debugPrint('📏 Alarm location: ${alarm.latitude}, ${alarm.longitude}');
+      debugPrint('📏 Distance to geofence center: ${distance.toStringAsFixed(0)}m');
+      debugPrint('📏 Geofence radius: ${effectiveRadius}m');
+
+      if (distance <= effectiveRadius) {
+        debugPrint('═══════════════════════════════════════════════');
+        debugPrint('⚠️⚠️⚠️ YOU ARE ALREADY INSIDE THE GEOFENCE! ⚠️⚠️⚠️');
+        debugPrint('🚨 TRIGGERING ALARM IMMEDIATELY!');
+        debugPrint('═══════════════════════════════════════════════');
+
+        // Trigger the alarm immediately
+        await _triggerAlarmNow(alarm);
+      } else {
+        debugPrint('✅ You are OUTSIDE the geofence (${distance.toStringAsFixed(0)}m away)');
+        debugPrint('   The alarm will trigger when you move within ${effectiveRadius}m');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Could not check current position: $e');
+      debugPrint('   Alarm will trigger when you enter the geofence');
+    }
+  }
+
   /// Stop geofencing for an alarm
   Future<void> stopGeofencing(String alarmId) async {
     debugPrint('🛑 Stopping geofencing for alarm: $alarmId');
@@ -596,6 +670,21 @@ class GeofenceAlarmService {
         await _alarmSoundService.stopAlarm();
       }
 
+      // Use native iOS geofencing on iOS
+      if (Platform.isIOS) {
+        await _nativeIOSGeofenceService.stopGeofencing(alarmId);
+        debugPrint('✅ Native iOS geofence stopped for: $alarmId');
+
+        // Check if we should mark service as stopped
+        final activeAlarms = AlarmStorageService.getActiveAlarms();
+        if (activeAlarms.isEmpty) {
+          _isServiceRunning = false;
+          debugPrint('🛑 No more active alarms');
+        }
+        return;
+      }
+
+      // For Android, use geofence_foreground_service package
       // Get the alarm to construct the encoded zone ID
       final alarm = AlarmStorageService.getAlarm(alarmId);
       if (alarm != null) {
@@ -627,6 +716,16 @@ class GeofenceAlarmService {
 
     try {
       await _alarmSoundService.stopAlarm();
+
+      // Use native iOS geofencing on iOS
+      if (Platform.isIOS) {
+        await _nativeIOSGeofenceService.stopAllGeofencing();
+        _isServiceRunning = false;
+        debugPrint('✅ All native iOS geofences stopped');
+        return;
+      }
+
+      // For Android, use geofence_foreground_service package
       await GeofenceForegroundService().stopGeofencingService();
       _isServiceRunning = false;
       debugPrint('✅ All geofencing stopped');
