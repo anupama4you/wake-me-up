@@ -7,6 +7,8 @@ class Alarm {
   final double radius;
   final String soundLevel;
   bool isActive; // Changed from final to mutable
+  bool isCompleted; // Marks alarm as completed when user reaches destination
+  DateTime? completedAt; // Timestamp when alarm was triggered
 
   Alarm({
     required this.id,
@@ -17,6 +19,8 @@ class Alarm {
     required this.radius,
     this.soundLevel = 'Medium',
     this.isActive = false,
+    this.isCompleted = false,
+    this.completedAt,
   });
 
   // Convert Alarm to JSON for persistence
@@ -30,6 +34,8 @@ class Alarm {
       'radius': radius,
       'soundLevel': soundLevel,
       'isActive': isActive,
+      'isCompleted': isCompleted,
+      'completedAt': completedAt?.toIso8601String(),
     };
   }
 
@@ -44,6 +50,10 @@ class Alarm {
       radius: json['radius'],
       soundLevel: json['soundLevel'] ?? 'Medium',
       isActive: json['isActive'] ?? false,
+      isCompleted: json['isCompleted'] ?? false,
+      completedAt: json['completedAt'] != null
+          ? DateTime.tryParse(json['completedAt'])
+          : null,
     );
   }
 }

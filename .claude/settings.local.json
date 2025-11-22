@@ -14,7 +14,8 @@
       "Bash(flutter doctor:*)",
       "Bash(flutter devices:*)",
       "Bash(pod install)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(flutter attach:*)"
     ],
     "deny": [],
     "ask": []

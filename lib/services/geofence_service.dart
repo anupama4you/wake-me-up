@@ -264,6 +264,10 @@ class GeofenceAlarmService {
   bool _isInitialized = false;
   bool _isServiceRunning = false;
 
+  /// Callback when an alarm is triggered and marked as completed
+  /// UI can listen to this to refresh the alarm list
+  Function(String alarmId)? onAlarmCompleted;
+
   /// Initialize the geofence service
   Future<void> initialize() async {
     if (_isInitialized) return;
@@ -591,25 +595,51 @@ class GeofenceAlarmService {
   }
 
   /// Trigger alarm immediately (when already inside geofence or for testing)
+  /// Note: Alarm stays ACTIVE until user manually toggles it off
   Future<void> _triggerAlarmNow(Alarm alarm) async {
     debugPrint('🚨 Triggering alarm NOW: ${alarm.name}');
 
     try {
+      // MARK ALARM AS COMPLETED but keep it ACTIVE
+      // User must manually toggle off to stop the alarm
+      alarm.isCompleted = true;
+      alarm.completedAt = DateTime.now();
+      // Keep isActive = true - alarm continues until user disables it
+      await AlarmStorageService.updateAlarm(alarm);
+      debugPrint('✅ Alarm marked as COMPLETED (still active - user must toggle off)');
+      debugPrint('   - isCompleted: ${alarm.isCompleted}');
+      debugPrint('   - completedAt: ${alarm.completedAt}');
+      debugPrint('   - isActive: ${alarm.isActive}');
+
+      // Stop geofencing monitoring (no need to track anymore - already arrived)
+      if (Platform.isIOS) {
+        await _nativeIOSGeofenceService.stopGeofencing(alarm.id);
+        debugPrint('✅ Native iOS geofence monitoring stopped (destination reached)');
+      }
+
       // Show notification with sound
       await _showBackgroundNotification(alarm);
       debugPrint('✅ Notification shown with sound');
 
-      // IMPORTANT: Only start alarm sound if app is in foreground
-      // Background sound is handled by the notification system
+      // Start alarm sound - keeps playing until user toggles off
       try {
         await _alarmSoundService.startAlarm(
           alarmId: alarm.id,
           soundLevel: alarm.soundLevel,
         );
-        debugPrint('✅ App alarm sound started (foreground)');
+        debugPrint('✅ Alarm sound started - will continue until user disables');
       } catch (e) {
         debugPrint('⚠️ Could not start app alarm sound (app may be in background): $e');
         debugPrint('   Alarm sound will play through notification');
+      }
+
+      // Notify UI to refresh alarm list (if callback is set)
+      debugPrint('📢 Checking if onAlarmCompleted callback is set: ${onAlarmCompleted != null}');
+      if (onAlarmCompleted != null) {
+        debugPrint('📢 Notifying UI that alarm ${alarm.id} is completed');
+        onAlarmCompleted!(alarm.id);
+      } else {
+        debugPrint('⚠️ onAlarmCompleted callback is NOT set - UI will not refresh automatically');
       }
     } catch (e, stackTrace) {
       debugPrint('❌ Error triggering alarm: $e');
@@ -665,10 +695,10 @@ class GeofenceAlarmService {
     debugPrint('🛑 Stopping geofencing for alarm: $alarmId');
 
     try {
-      // Stop alarm sound if playing
-      if (_alarmSoundService.currentAlarmId == alarmId) {
-        await _alarmSoundService.stopAlarm();
-      }
+      // Always stop alarm sound when geofencing is stopped
+      // The sound service is a singleton, so this will stop any playing alarm
+      debugPrint('🔊 Stopping alarm sound (current: ${_alarmSoundService.currentAlarmId}, requested: $alarmId)');
+      await _alarmSoundService.stopAlarm();
 
       // Use native iOS geofencing on iOS
       if (Platform.isIOS) {

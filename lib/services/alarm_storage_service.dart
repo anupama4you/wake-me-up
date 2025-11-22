@@ -89,7 +89,7 @@ class AlarmStorageService {
 
       debugPrint('   - Loaded ${alarms.length} alarms:');
       for (var alarm in alarms) {
-        debugPrint('     • ${alarm.name} (ID: ${alarm.id}, Active: ${alarm.isActive})');
+        debugPrint('     • ${alarm.name} (ID: ${alarm.id}, Active: ${alarm.isActive}, Completed: ${alarm.isCompleted})');
       }
 
       return alarms;

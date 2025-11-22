@@ -19,11 +19,19 @@ class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   List<Alarm> _alarms = [];
   bool _isLoading = true;
+  GeofenceAlarmService? _geofenceService;
 
   @override
   void initState() {
     super.initState();
     _initializeAndLoadAlarms();
+  }
+
+  @override
+  void dispose() {
+    // Clear callback when screen is disposed
+    _geofenceService?.onAlarmCompleted = null;
+    super.dispose();
   }
 
   // Initialize Hive and load alarms
@@ -39,8 +47,8 @@ class _MainScreenState extends State<MainScreen> {
       await AlarmStorageService.init();
       debugPrint('✅ AlarmStorageService initialized successfully');
 
-      // Then load alarms
-      await _loadAlarms();
+      // Then load alarms and sync geofences on initial load
+      await _loadAlarms(syncGeofences: true);
     } catch (e, stackTrace) {
       debugPrint('❌ Failed to initialize AlarmStorageService: $e');
       debugPrint('Stack trace: $stackTrace');
@@ -63,8 +71,8 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
-  // Load alarms from local storage
-  Future<void> _loadAlarms() async {
+  // Load alarms from local storage (without re-syncing geofences)
+  Future<void> _loadAlarms({bool syncGeofences = false}) async {
     setState(() => _isLoading = true);
     try {
       // Check if storage is initialized
@@ -87,14 +95,26 @@ class _MainScreenState extends State<MainScreen> {
       });
       debugPrint('✅ MainScreen: State updated with ${_alarms.length} alarms');
 
-      // Sync geofences with active alarms (restore geofencing after app restart)
-      try {
-        final geofenceService = GeofenceAlarmService();
-        await geofenceService.initialize();
-        await geofenceService.syncGeofencesWithAlarms();
-        debugPrint('✅ Geofences synced with active alarms');
-      } catch (e) {
-        debugPrint('⚠️ Error syncing geofences: $e');
+      // Only sync geofences on initial load or when explicitly requested
+      if (syncGeofences) {
+        try {
+          _geofenceService = GeofenceAlarmService();
+          await _geofenceService!.initialize();
+
+          // Set up callback to refresh UI when an alarm is triggered
+          // Note: This callback only refreshes UI, doesn't re-sync geofences
+          _geofenceService!.onAlarmCompleted = (alarmId) {
+            debugPrint('🔔 MainScreen: Alarm $alarmId completed, refreshing UI...');
+            if (mounted) {
+              _loadAlarms(syncGeofences: false); // Don't sync, just refresh UI
+            }
+          };
+
+          await _geofenceService!.syncGeofencesWithAlarms();
+          debugPrint('✅ Geofences synced with active alarms');
+        } catch (e) {
+          debugPrint('⚠️ Error syncing geofences: $e');
+        }
       }
     } catch (e) {
       setState(() {
@@ -122,12 +142,22 @@ class _MainScreenState extends State<MainScreen> {
       await AlarmStorageService.updateAlarm(alarm);
 
       // Handle geofencing based on alarm state
-      final geofenceService = GeofenceAlarmService();
-      await geofenceService.initialize();
+      // Reuse the existing service instance to maintain the callback
+      if (_geofenceService == null) {
+        _geofenceService = GeofenceAlarmService();
+        await _geofenceService!.initialize();
+        // Set up callback to refresh UI when an alarm is triggered
+        _geofenceService!.onAlarmCompleted = (alarmId) {
+          debugPrint('🔔 MainScreen: Alarm $alarmId completed, refreshing UI...');
+          if (mounted) {
+            _loadAlarms();
+          }
+        };
+      }
 
       if (active) {
         // Start geofencing for the activated alarm
-        final success = await geofenceService.startGeofencing(alarm);
+        final success = await _geofenceService!.startGeofencing(alarm);
 
         if (!success) {
           // Revert state on failure
@@ -159,15 +189,30 @@ class _MainScreenState extends State<MainScreen> {
         }
       } else {
         // Stop geofencing for the deactivated alarm
-        await geofenceService.stopGeofencing(id);
+        await _geofenceService!.stopGeofencing(id);
         debugPrint('🛑 Geofencing stopped for alarm: $id');
 
-        if (mounted) {
-          ErrorHandler.showSuccessSnackBar(
-            context,
-            'Alarm "${alarm.name}" deactivated',
-          );
+        // Get the latest alarm state from storage (it may have isCompleted=true from trigger)
+        final latestAlarm = AlarmStorageService.getAlarm(id);
+        if (latestAlarm != null) {
+          // Reset completed status and set to inactive
+          latestAlarm.isActive = false;
+          latestAlarm.isCompleted = false;
+          latestAlarm.completedAt = null;
+          await AlarmStorageService.updateAlarm(latestAlarm);
+          debugPrint('✅ Alarm deactivated and completed status reset');
         }
+
+        if (!mounted) return;
+
+        // Reload alarms to refresh UI with reset status
+        await _loadAlarms();
+
+        if (!mounted) return;
+        ErrorHandler.showSuccessSnackBar(
+          context,
+          'Alarm "${alarm.name}" deactivated',
+        );
       }
     } catch (e, stackTrace) {
       debugPrint('❌ Error toggling alarm: $e');
@@ -199,8 +244,9 @@ class _MainScreenState extends State<MainScreen> {
       await AlarmStorageService.deleteAlarm(id);
 
       // Stop geofencing for deleted alarm
-      final geofenceService = GeofenceAlarmService();
-      await geofenceService.stopGeofencing(id);
+      if (_geofenceService != null) {
+        await _geofenceService!.stopGeofencing(id);
+      }
       debugPrint('🛑 Geofencing stopped for deleted alarm: $id');
 
       if (mounted) {

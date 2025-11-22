@@ -25,9 +25,28 @@ import UserNotifications
     locationManager.desiredAccuracy = kCLLocationAccuracyBest
     locationManager.distanceFilter = 10
 
-    // Configure notification center for foreground notifications
+    // Configure notification center for foreground and background notifications
     if #available(iOS 10.0, *) {
       UNUserNotificationCenter.current().delegate = self
+
+      // Request notification permissions with critical alert (for alarm sounds on lock screen)
+      UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge, .criticalAlert]) { granted, error in
+        if granted {
+          print("✅ Notification permissions granted (including critical alerts)")
+        } else if let error = error {
+          print("❌ Notification permission error: \(error)")
+        }
+      }
+
+      // Register notification category with actions
+      let stopAction = UNNotificationAction(identifier: "STOP_ALARM", title: "Stop Alarm", options: [.foreground])
+      let alarmCategory = UNNotificationCategory(
+        identifier: "ALARM_CATEGORY",
+        actions: [stopAction],
+        intentIdentifiers: [],
+        options: [.customDismissAction]
+      )
+      UNUserNotificationCenter.current().setNotificationCategories([alarmCategory])
     }
 
     // Set up Flutter method channel for native geofencing
@@ -165,19 +184,30 @@ import UserNotifications
     let content = UNMutableNotificationContent()
     content.title = title
     content.body = body
-    content.sound = UNNotificationSound(named: UNNotificationSoundName("alarm.mp3"))
+
+    // Use default critical sound for maximum reliability on lock screen
+    // Critical alerts bypass Do Not Disturb and silent mode
+    if #available(iOS 12.0, *) {
+      content.sound = UNNotificationSound.defaultCritical
+    } else {
+      content.sound = UNNotificationSound(named: UNNotificationSoundName("alarm.mp3"))
+    }
+
     if #available(iOS 15.0, *) {
       content.interruptionLevel = .critical
     }
-    content.categoryIdentifier = "ALARM_CATEGORY"
 
-    let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+    content.categoryIdentifier = "ALARM_CATEGORY"
+    content.badge = 1
+
+    // Use a consistent identifier so we can update/cancel if needed
+    let request = UNNotificationRequest(identifier: "GEOFENCE_ALARM", content: content, trigger: nil)
 
     UNUserNotificationCenter.current().add(request) { error in
       if let error = error {
         print("❌ Notification error: \(error)")
       } else {
-        print("✅ Geofence notification sent")
+        print("✅ Geofence notification sent (critical alert for lock screen)")
       }
     }
   }
@@ -194,5 +224,19 @@ import UserNotifications
     } else {
       completionHandler([.alert, .sound, .badge])
     }
+  }
+
+  // Handle notification action responses (when user taps "Stop Alarm")
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    if response.actionIdentifier == "STOP_ALARM" {
+      print("🛑 User tapped Stop Alarm")
+      // Notify Flutter to stop the alarm sound
+      methodChannel?.invokeMethod("stopAlarm", arguments: nil)
+    }
+    completionHandler()
   }
 }

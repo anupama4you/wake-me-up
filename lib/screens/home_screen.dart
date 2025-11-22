@@ -674,13 +674,48 @@ class _AlarmCard extends StatelessWidget {
     }
   }
 
+  /// Format completed time
+  String _formatCompletedTime(DateTime? completedAt) {
+    if (completedAt == null) return 'Completed';
+    final now = DateTime.now();
+    final diff = now.difference(completedAt);
+    if (diff.inMinutes < 1) {
+      return 'Just arrived';
+    } else if (diff.inMinutes < 60) {
+      return 'Arrived ${diff.inMinutes}m ago';
+    } else if (diff.inHours < 24) {
+      return 'Arrived ${diff.inHours}h ago';
+    } else {
+      return 'Arrived ${diff.inDays}d ago';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Modern styling for active vs inactive cards
+    // Modern styling for active vs inactive vs completed cards
     final bool isActive = alarm.isActive;
+    final bool isCompleted = alarm.isCompleted;
+
+    // Determine card colors based on state
+    Color? cardBackground;
+    BoxDecoration cardDecoration;
+
+    if (isCompleted) {
+      cardBackground = AppTheme.successColor.withValues(alpha: 0.08);
+      cardDecoration = BoxDecoration(
+        color: cardBackground,
+        borderRadius: BorderRadius.circular(AppTheme.radiusXLarge),
+        border: Border.all(
+          color: AppTheme.successColor.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
+      );
+    } else {
+      cardDecoration = AppTheme.alarmCardDecoration(isActive: isActive);
+    }
 
     return Material(
-      color: isActive ? null : AppTheme.cardColor,
+      color: isCompleted ? null : (isActive ? null : AppTheme.cardColor),
       borderRadius: BorderRadius.circular(AppTheme.radiusXLarge),
       elevation: isActive ? AppTheme.elevationMedium : AppTheme.elevationNone,
       child: InkWell(
@@ -688,11 +723,14 @@ class _AlarmCard extends StatelessWidget {
         onTap: isEditMode ? onEdit : onTap,
         child: Container(
           padding: const EdgeInsets.all(AppTheme.paddingMedium),
-          decoration: AppTheme.alarmCardDecoration(isActive: isActive),
+          decoration: cardDecoration,
           child: Row(
             children: [
-              // Animated pin with pulsing radius
-              _AnimatedLocationPin(active: alarm.isActive),
+              // Animated pin with pulsing radius (or completed checkmark)
+              if (isCompleted)
+                _CompletedBadge()
+              else
+                _AnimatedLocationPin(active: alarm.isActive),
               const SizedBox(width: 12),
 
               // Texts (name, address, radius|sound)
@@ -709,7 +747,9 @@ class _AlarmCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTheme.headingMedium.copyWith(
-                              color: AppTheme.getTextColor(isActive: isActive),
+                              color: isCompleted
+                                  ? AppTheme.successColor
+                                  : AppTheme.getTextColor(isActive: isActive),
                             ),
                           ),
                         ),
@@ -735,13 +775,53 @@ class _AlarmCard extends StatelessWidget {
                             ],
                           )
                         else
-                          Switch.adaptive(
-                            value: alarm.isActive,
-                            onChanged: onToggle,
-                            activeThumbColor: AppTheme.textOnPrimaryColor,
-                            activeTrackColor: AppTheme.accentGreen,
-                            inactiveThumbColor: AppTheme.textOnPrimaryColor,
-                            inactiveTrackColor: AppTheme.borderColor,
+                          // Always show switch - completed alarms can be toggled off
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Show completed badge next to switch when completed
+                              if (isCompleted)
+                                Container(
+                                  margin: const EdgeInsets.only(right: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.successColor.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.check_circle,
+                                        color: AppTheme.successColor,
+                                        size: 14,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Arrived',
+                                        style: AppTheme.labelSmall.copyWith(
+                                          color: AppTheme.successColor,
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              Switch.adaptive(
+                                value: alarm.isActive,
+                                onChanged: onToggle,
+                                activeThumbColor: AppTheme.textOnPrimaryColor,
+                                activeTrackColor: isCompleted
+                                    ? AppTheme.successColor
+                                    : AppTheme.accentGreen,
+                                inactiveThumbColor: AppTheme.textOnPrimaryColor,
+                                inactiveTrackColor: AppTheme.borderColor,
+                              ),
+                            ],
                           ),
                       ],
                     ),
@@ -754,15 +834,21 @@ class _AlarmCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTheme.bodySmall.copyWith(
-                        color: AppTheme.getTextColor(
-                          isActive: isActive,
-                          isSecondary: true,
-                        ),
+                        color: isCompleted
+                            ? AppTheme.successColor.withValues(alpha: 0.7)
+                            : AppTheme.getTextColor(
+                                isActive: isActive,
+                                isSecondary: true,
+                              ),
                       ),
                     ),
 
                     // Progress bar (only for active alarms with location data)
-                    if (isActive &&
+                    // Show completed progress for completed alarms
+                    if (isCompleted) ...[
+                      const SizedBox(height: AppTheme.paddingSmall),
+                      _CompletedProgressIndicator(),
+                    ] else if (isActive &&
                         currentDistance != null &&
                         progress != null) ...[
                       const SizedBox(height: AppTheme.paddingSmall),
@@ -782,12 +868,14 @@ class _AlarmCard extends StatelessWidget {
                           icon: Icons.radar,
                           label: '${alarm.radius?.toStringAsFixed(0) ?? '-'} m',
                           isActive: isActive,
+                          isCompleted: isCompleted,
                         ),
                         const SizedBox(width: 8),
                         _MetaChip(
                           icon: Icons.volume_up,
                           label: alarm.soundLevel ?? 'Default',
                           isActive: isActive,
+                          isCompleted: isCompleted,
                         ),
                       ],
                     ),
@@ -908,35 +996,51 @@ class _MetaChip extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isActive;
+  final bool isCompleted;
 
   const _MetaChip({
     Key? key,
     required this.icon,
     required this.label,
     this.isActive = false,
+    this.isCompleted = false,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final chipColor = isCompleted
+        ? AppTheme.successColor.withValues(alpha: 0.1)
+        : null;
+    final contentColor = isCompleted
+        ? AppTheme.successColor.withValues(alpha: 0.7)
+        : AppTheme.getTextColor(isActive: isActive);
+
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppTheme.paddingSmall + 2,
         vertical: 6,
       ),
-      decoration: AppTheme.chipDecoration(isActive: isActive),
+      decoration: isCompleted
+          ? BoxDecoration(
+              color: chipColor,
+              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+            )
+          : AppTheme.chipDecoration(isActive: isActive),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             icon,
             size: 15,
-            color: AppTheme.getIconColor(isActive: isActive),
+            color: isCompleted
+                ? AppTheme.successColor.withValues(alpha: 0.7)
+                : AppTheme.getIconColor(isActive: isActive),
           ),
           const SizedBox(width: 6),
           Text(
             label,
             style: AppTheme.labelMedium.copyWith(
-              color: AppTheme.getTextColor(isActive: isActive),
+              color: contentColor,
             ),
           ),
         ],
@@ -1063,6 +1167,95 @@ class _ProgressIndicator extends StatelessWidget {
                 ? AppTheme.activeAlarmBorder.withValues(alpha: 0.2)
                 : AppTheme.borderColor.withValues(alpha: 0.3),
             valueColor: AlwaysStoppedAnimation<Color>(progressColor),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/* ------------------------- Completed Badge --------------------------- */
+
+class _CompletedBadge extends StatelessWidget {
+  const _CompletedBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 54,
+      height: 54,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Green circle background
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: AppTheme.successColor.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.check_circle,
+              color: AppTheme.successColor,
+              size: 28,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/* ---------------------- Completed Progress Indicator ------------------ */
+
+class _CompletedProgressIndicator extends StatelessWidget {
+  const _CompletedProgressIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Arrived text
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.flag_rounded,
+                  size: 14,
+                  color: AppTheme.successColor,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'Destination reached',
+                  style: AppTheme.labelSmall.copyWith(
+                    color: AppTheme.successColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            Text(
+              '100%',
+              style: AppTheme.labelSmall.copyWith(
+                color: AppTheme.successColor,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        // Full progress bar
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: 1.0,
+            minHeight: 6,
+            backgroundColor: AppTheme.successColor.withValues(alpha: 0.2),
+            valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.successColor),
           ),
         ),
       ],
