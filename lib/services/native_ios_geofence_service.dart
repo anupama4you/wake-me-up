@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/alarm.dart';
-import 'alarm_sound_service.dart';
 
 /// Native iOS geofencing service using Core Location
 /// This provides reliable background geofencing on iOS
@@ -16,7 +15,9 @@ class NativeIOSGeofenceService {
   }
 
   Function(String id, String name)? onGeofenceEntered;
-  final _alarmSoundService = AlarmSoundService();
+
+  /// Callback to stop alarm sound - set by AlarmSoundService to avoid circular dependency
+  Future<void> Function()? onStopAlarmRequested;
 
   void _setupMethodCallHandler() {
     _channel.setMethodCallHandler((call) async {
@@ -31,7 +32,13 @@ class NativeIOSGeofenceService {
         case 'stopAlarm':
           // User tapped "Stop Alarm" button on notification
           debugPrint('🛑 Flutter received stopAlarm from native iOS');
-          await _alarmSoundService.stopAlarm();
+          // Call the callback if set (to avoid circular dependency)
+          if (onStopAlarmRequested != null) {
+            await onStopAlarmRequested!();
+          } else {
+            // Fallback: directly stop the native sound
+            await stopSystemSound();
+          }
           break;
       }
     });
@@ -47,12 +54,14 @@ class NativeIOSGeofenceService {
 
     try {
       debugPrint('📍 Starting NATIVE iOS geofence for: ${alarm.name}');
+      debugPrint('   - Ringtone: ${alarm.ringtone}');
       final result = await _channel.invokeMethod('startGeofence', {
         'id': alarm.id,
         'latitude': alarm.latitude,
         'longitude': alarm.longitude,
         'radius': alarm.radius,
         'name': alarm.name,
+        'ringtone': alarm.ringtone, // Pass ringtone to native iOS for background playback
       });
       debugPrint('✅ Native iOS geofence started: $result');
       return result == true;
@@ -83,6 +92,39 @@ class NativeIOSGeofenceService {
       debugPrint('🛑 All native iOS geofences stopped');
     } catch (e) {
       debugPrint('❌ Error stopping all native iOS geofences: $e');
+    }
+  }
+
+  /// Play iOS system sound
+  /// soundType options: 'alarm', 'tritone', 'alert', 'bell', 'electronic', 'horn', 'radar', 'beacon', 'bulletin', 'chime'
+  Future<bool> playSystemSound({required String soundType, bool loop = true}) async {
+    if (!Platform.isIOS) {
+      debugPrint('⚠️ iOS system sounds only work on iOS');
+      return false;
+    }
+
+    try {
+      debugPrint('🔊 Playing iOS system sound: $soundType');
+      final result = await _channel.invokeMethod('playSystemSound', {
+        'soundType': soundType,
+        'loop': loop,
+      });
+      return result == true;
+    } catch (e) {
+      debugPrint('❌ Error playing iOS system sound: $e');
+      return false;
+    }
+  }
+
+  /// Stop iOS system sound
+  Future<void> stopSystemSound() async {
+    if (!Platform.isIOS) return;
+
+    try {
+      await _channel.invokeMethod('stopSystemSound');
+      debugPrint('🛑 iOS system sound stopped');
+    } catch (e) {
+      debugPrint('❌ Error stopping iOS system sound: $e');
     }
   }
 }

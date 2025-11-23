@@ -6,6 +6,7 @@ class Alarm {
   final double longitude;
   final double radius;
   final String soundLevel;
+  final String ringtone; // Custom ringtone selection
   bool isActive; // Changed from final to mutable
   bool isCompleted; // Marks alarm as completed when user reaches destination
   DateTime? completedAt; // Timestamp when alarm was triggered
@@ -18,6 +19,7 @@ class Alarm {
     required this.longitude,
     required this.radius,
     this.soundLevel = 'Medium',
+    this.ringtone = 'alarm', // Default to alarm.mp3
     this.isActive = false,
     this.isCompleted = false,
     this.completedAt,
@@ -33,6 +35,7 @@ class Alarm {
       'longitude': longitude,
       'radius': radius,
       'soundLevel': soundLevel,
+      'ringtone': ringtone,
       'isActive': isActive,
       'isCompleted': isCompleted,
       'completedAt': completedAt?.toIso8601String(),
@@ -49,6 +52,7 @@ class Alarm {
       longitude: json['longitude'],
       radius: json['radius'],
       soundLevel: json['soundLevel'] ?? 'Medium',
+      ringtone: json['ringtone'] ?? 'alarm',
       isActive: json['isActive'] ?? false,
       isCompleted: json['isCompleted'] ?? false,
       completedAt: json['completedAt'] != null

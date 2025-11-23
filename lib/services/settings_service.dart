@@ -10,6 +10,7 @@ class SettingsService {
   static const String _keyVibrationEnabled = 'vibration_enabled';
   static const String _keyHighAccuracy = 'high_accuracy';
   static const String _keyUpdateInterval = 'update_interval';
+  static const String _keyDefaultRingtone = 'default_ringtone';
 
   /// Initialize the settings service
   static Future<void> init() async {
@@ -54,4 +55,10 @@ class SettingsService {
 
   /// Get update interval in milliseconds
   static int get updateIntervalInMillis => updateInterval * 1000;
+
+  // Default Ringtone
+  static String get defaultRingtone => _prefs?.getString(_keyDefaultRingtone) ?? 'alarm';
+  static Future<void> setDefaultRingtone(String value) async {
+    await _prefs?.setString(_keyDefaultRingtone, value);
+  }
 }

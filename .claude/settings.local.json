@@ -15,7 +15,9 @@
       "Bash(flutter devices:*)",
       "Bash(pod install)",
       "Bash(rm:*)",
-      "Bash(flutter attach:*)"
+      "Bash(flutter attach:*)",
+      "Bash(export LANG=en_US.UTF-8)",
+      "Bash(flutter build:*)"
     ],
     "deny": [],
     "ask": []

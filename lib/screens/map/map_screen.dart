@@ -35,6 +35,9 @@ class _MapScreenState extends State<MapScreen> {
   Set<Marker> _markers = {};
   Set<Circle> _circles = {};
 
+  // Custom marker icon
+  BitmapDescriptor? _customMarkerIcon;
+
   // Places API
   late final GooglePlacesService _googlePlacesService;
   final Duration _debounce = const Duration(milliseconds: 350);
@@ -58,6 +61,9 @@ class _MapScreenState extends State<MapScreen> {
     final apiKey = dotenv.env['GOOGLE_API_KEY'] ?? '';
     _googlePlacesService = GooglePlacesService(apiKey);
 
+    // Create custom marker icon
+    _createCustomMarker();
+
     // Load existing alarm if editing, otherwise use default settings
     if (widget.existingAlarm != null) {
       final alarm = widget.existingAlarm!;
@@ -72,6 +78,45 @@ class _MapScreenState extends State<MapScreen> {
     }
 
     _requestPermissionAndLocation();
+  }
+
+  Future<void> _createCustomMarker() async {
+    // Create a custom marker using asset or default with better visibility
+    _customMarkerIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// Reverse geocode a location to get address
+  Future<void> _reverseGeocodeLocation(LatLng position) async {
+    try {
+      final result = await _googlePlacesService.reverseGeocode(
+        lat: position.latitude,
+        lng: position.longitude,
+      );
+
+      if (!mounted) return;
+
+      if (result != null && result.isNotEmpty) {
+        setState(() {
+          _searchController.text = result;
+        });
+      } else {
+        // Fallback to a friendly name if reverse geocoding returns nothing
+        setState(() {
+          _searchController.text = 'Pinned Location';
+        });
+      }
+    } catch (e) {
+      debugPrint('Reverse geocoding error: $e');
+      // Fallback to a friendly name
+      if (mounted) {
+        setState(() {
+          _searchController.text = 'Pinned Location';
+        });
+      }
+    }
   }
 
   Future<void> _loadDefaultSettings() async {
@@ -208,18 +253,22 @@ class _MapScreenState extends State<MapScreen> {
     final circles = <Circle>{};
 
     if (_selectedLocation != null) {
-      // Add marker for selected location
+      // Add marker for selected location with custom visible icon
       markers.add(
         Marker(
           markerId: const MarkerId('selected_location'),
           position: _selectedLocation!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          icon: _customMarkerIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
           draggable: true,
-          onDragEnd: (newPosition) {
+          onDragEnd: (newPosition) async {
             setState(() {
               _selectedLocation = newPosition;
-              _updateMapMarkers();
+              _searchController.text = 'Loading address...';
             });
+
+            // Reverse geocode to get address
+            await _reverseGeocodeLocation(newPosition);
+            _updateMapMarkers();
 
             // Center map on dragged position
             _mapController?.animateCamera(CameraUpdate.newLatLng(newPosition));
@@ -366,16 +415,19 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
-  void _onMapTapped(LatLng position) {
+  Future<void> _onMapTapped(LatLng position) async {
     // If pin mode is active, set the location
     if (_pinModeActive) {
       setState(() {
         _selectedLocation = position;
-        _searchController.text = 'Selected Location';
+        _searchController.text = 'Loading address...';
         _showPredictions = false;
         _pinModeActive = false; // Exit pin mode after dropping pin
         _updateMapMarkers();
       });
+
+      // Reverse geocode to get actual address
+      await _reverseGeocodeLocation(position);
 
       _centerOnLocation(position);
 
@@ -542,34 +594,69 @@ class _MapScreenState extends State<MapScreen> {
         iconTheme: const IconThemeData(color: AppTheme.textPrimaryColor),
         elevation: 0,
         actions: [
-          // Pin mode toggle
+          // Pin mode toggle - more visible button
           Container(
-            margin: const EdgeInsets.only(right: 8),
-            child: IconButton(
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: _pinModeActive
-                      ? AppTheme.accentGreen.withValues(alpha: 0.2)
-                      : AppTheme.borderLightColor,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  _pinModeActive ? Icons.location_pin : Icons.location_pin,
+            margin: const EdgeInsets.only(right: 12),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              decoration: BoxDecoration(
+                color: _pinModeActive
+                    ? AppTheme.accentGreen
+                    : AppTheme.primaryColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
                   color: _pinModeActive
                       ? AppTheme.accentGreen
-                      : AppTheme.textSecondaryColor,
-                  size: 20,
+                      : AppTheme.primaryColor,
+                  width: 2,
+                ),
+                boxShadow: _pinModeActive
+                    ? [
+                        BoxShadow(
+                          color: AppTheme.accentGreen.withValues(alpha: 0.4),
+                          blurRadius: 8,
+                          spreadRadius: 1,
+                        )
+                      ]
+                    : null,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () {
+                    setState(() {
+                      _pinModeActive = !_pinModeActive;
+                    });
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _pinModeActive ? Icons.touch_app : Icons.add_location_alt,
+                          color: _pinModeActive
+                              ? Colors.white
+                              : AppTheme.primaryColor,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _pinModeActive ? 'Tap Map' : 'Drop Pin',
+                          style: TextStyle(
+                            color: _pinModeActive
+                                ? Colors.white
+                                : AppTheme.primaryColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-              tooltip: _pinModeActive
-                  ? 'Pin mode active - Tap map'
-                  : 'Tap to enable pin mode',
-              onPressed: () {
-                setState(() {
-                  _pinModeActive = !_pinModeActive;
-                });
-              },
             ),
           ),
         ],

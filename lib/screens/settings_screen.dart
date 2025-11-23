@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'dart:io';
+import 'package:audioplayers/audioplayers.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
 import '../services/geofence_service.dart';
+import '../services/alarm_sound_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -15,6 +15,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   double _defaultRadius = 500.0;
   String _defaultSoundLevel = 'Loud';
+  AlarmRingtone _defaultRingtone = AlarmRingtone.alarm;
   bool _vibration = true;
   bool _highAccuracy = true;
   int _updateInterval = 10;
@@ -29,6 +30,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _defaultRadius = SettingsService.defaultRadius;
       _defaultSoundLevel = SettingsService.defaultSoundLevel;
+      _defaultRingtone = AlarmRingtone.fromString(SettingsService.defaultRingtone);
       _vibration = SettingsService.vibrationEnabled;
       _highAccuracy = SettingsService.highAccuracy;
       _updateInterval = SettingsService.updateInterval;
@@ -59,12 +61,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const Divider(height: 1),
               _buildSettingRow(
-                'Default Alarm Sound',
+                'Default Volume',
                 trailing: Text(
                   _defaultSoundLevel,
                   style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor),
                 ),
                 onTap: () => _showSoundLevelPicker(),
+              ),
+              const Divider(height: 1),
+              _buildSettingRow(
+                'Default Ringtone',
+                trailing: Text(
+                  _defaultRingtone.displayName,
+                  style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor),
+                ),
+                onTap: () => _showRingtonePicker(),
               ),
               const Divider(height: 1),
               _buildSettingRow(
@@ -104,16 +115,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor),
                 ),
                 onTap: () => _showUpdateIntervalPicker(),
-              ),
-            ]),
-            const SizedBox(height: 24),
-            _buildSectionTitle('DIAGNOSTICS'),
-            _buildSettingsCard([
-              _buildSettingRow(
-                'Test Notification',
-                subtitle: 'Send a test notification to verify notifications work',
-                trailing: const Icon(Icons.notifications_active, color: AppTheme.primaryColor),
-                onTap: () => _testNotification(),
               ),
             ]),
             const SizedBox(height: 24),
@@ -210,6 +211,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _showRingtonePicker() async {
+    final result = await showDialog<AlarmRingtone>(
+      context: context,
+      builder: (context) => _RingtonePickerDialog(initialValue: _defaultRingtone),
+    );
+
+    if (result != null) {
+      setState(() => _defaultRingtone = result);
+      await SettingsService.setDefaultRingtone(result.name);
+    }
+  }
+
   /// Reload geofence settings after GPS settings change
   Future<void> _reloadGeofenceSettings() async {
     try {
@@ -218,90 +231,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('✅ Geofence settings reloaded');
     } catch (e) {
       debugPrint('⚠️ Error reloading geofence settings: $e');
-    }
-  }
-
-  /// Test notification to verify notifications are working
-  Future<void> _testNotification() async {
-    debugPrint('🔔 Testing notification...');
-
-    final notificationsPlugin = FlutterLocalNotificationsPlugin();
-
-    // Check permissions first
-    if (Platform.isIOS) {
-      final iosPlugin = notificationsPlugin
-          .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
-
-      final permissions = await iosPlugin?.checkPermissions();
-      debugPrint('📱 iOS Notification Permissions: $permissions');
-
-      if (permissions == null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('⚠️ Could not check notification permissions. Please check Settings > Notifications > WakeMeUp'),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 5),
-          ),
-        );
-        return;
-      }
-    }
-
-    // Send test notification
-    try {
-      const androidDetails = AndroidNotificationDetails(
-        'test_channel',
-        'Test Notifications',
-        channelDescription: 'Test notification channel',
-        importance: Importance.max,
-        priority: Priority.high,
-      );
-
-      const iosDetails = DarwinNotificationDetails(
-        presentAlert: true,
-        presentBadge: true,
-        presentSound: true,
-        presentBanner: true,
-        presentList: true,
-        sound: 'default',
-        interruptionLevel: InterruptionLevel.critical,
-      );
-
-      const details = NotificationDetails(
-        android: androidDetails,
-        iOS: iosDetails,
-      );
-
-      await notificationsPlugin.show(
-        999998,
-        '🔔 Test Notification',
-        'If you see this, notifications are working!',
-        details,
-      );
-
-      debugPrint('✅ Test notification sent successfully');
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Test notification sent! Check your notification center.'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 3),
-        ),
-      );
-    } catch (e, stackTrace) {
-      debugPrint('❌ Error sending test notification: $e');
-      debugPrint('Stack trace: $stackTrace');
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('❌ Error: $e'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 5),
-        ),
-      );
     }
   }
 }
@@ -426,6 +355,129 @@ class _UpdateIntervalPickerDialog extends StatelessWidget {
       title: Text(label),
       trailing: isSelected ? const Icon(Icons.check, color: AppTheme.primaryColor) : null,
       onTap: () => Navigator.pop(context, seconds),
+    );
+  }
+}
+
+// Ringtone Picker Dialog with Preview
+class _RingtonePickerDialog extends StatefulWidget {
+  final AlarmRingtone initialValue;
+
+  const _RingtonePickerDialog({required this.initialValue});
+
+  @override
+  State<_RingtonePickerDialog> createState() => _RingtonePickerDialogState();
+}
+
+class _RingtonePickerDialogState extends State<_RingtonePickerDialog> {
+  AudioPlayer? _audioPlayer;
+  AlarmRingtone? _playingRingtone;
+  bool _isDisposed = false;
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    _disposeAudioPlayer();
+    super.dispose();
+  }
+
+  void _disposeAudioPlayer() {
+    final player = _audioPlayer;
+    _audioPlayer = null;
+    _playingRingtone = null;
+    if (player != null) {
+      player.stop().then((_) => player.dispose()).catchError((_) {});
+    }
+  }
+
+  Future<void> _playPreview(AlarmRingtone ringtone) async {
+    // Stop any currently playing preview
+    await _stopPreview();
+
+    if (_isDisposed) return;
+    setState(() => _playingRingtone = ringtone);
+
+    try {
+      _audioPlayer = AudioPlayer();
+      await _audioPlayer!.setVolume(0.7);
+      await _audioPlayer!.play(AssetSource(ringtone.assetPath));
+
+      // Auto-stop after 3 seconds
+      Future.delayed(const Duration(seconds: 3), () {
+        if (!_isDisposed && _playingRingtone == ringtone) {
+          _stopPreview();
+        }
+      });
+    } catch (e) {
+      debugPrint('Error playing preview: $e');
+      if (!_isDisposed && mounted) {
+        setState(() => _playingRingtone = null);
+      }
+    }
+  }
+
+  Future<void> _stopPreview() async {
+    final player = _audioPlayer;
+    _audioPlayer = null;
+
+    if (player != null) {
+      try {
+        await player.stop();
+        await player.dispose();
+      } catch (e) {
+        // Ignore errors during cleanup
+      }
+    }
+
+    if (!_isDisposed && mounted) {
+      setState(() => _playingRingtone = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Default Ringtone'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: AlarmRingtone.values.map((ringtone) {
+            final isSelected = ringtone == widget.initialValue;
+            final isPlaying = _playingRingtone == ringtone;
+            return ListTile(
+              leading: IconButton(
+                icon: Icon(
+                  isPlaying ? Icons.stop_circle : Icons.play_circle,
+                  color: isPlaying ? Colors.red : AppTheme.primaryColor,
+                  size: 28,
+                ),
+                onPressed: () {
+                  if (isPlaying) {
+                    _stopPreview();
+                  } else {
+                    _playPreview(ringtone);
+                  }
+                },
+              ),
+              title: Text(ringtone.displayName),
+              trailing: isSelected ? const Icon(Icons.check, color: AppTheme.primaryColor) : null,
+              onTap: () {
+                _stopPreview();
+                Navigator.pop(context, ringtone);
+              },
+            );
+          }).toList(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            _stopPreview();
+            Navigator.pop(context);
+          },
+          child: const Text('Cancel'),
+        ),
+      ],
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../models/alarm.dart';
 import '../../services/alarm_storage_service.dart';
 import '../../services/geofence_service.dart';
+import '../../services/alarm_sound_service.dart';
 import '../alarm_detail_map_screen.dart';
 
 class AlarmSettingsScreen extends StatefulWidget {
@@ -26,6 +27,7 @@ class AlarmSettingsScreen extends StatefulWidget {
 class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
   double _radius = 500;
   String _selectedSound = 'Loud';
+  AlarmRingtone _selectedRingtone = AlarmRingtone.alarm;
   late final TextEditingController _nameController;
   GoogleMapController? _mapController;
 
@@ -37,6 +39,7 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
     if (widget.existingAlarm != null) {
       _radius = widget.existingAlarm!.radius;
       _selectedSound = widget.existingAlarm!.soundLevel;
+      _selectedRingtone = AlarmRingtone.fromString(widget.existingAlarm!.ringtone);
       _nameController.text = widget.existingAlarm!.name;
     }
   }
@@ -77,6 +80,7 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
       longitude: widget.selectedLocation.longitude,
       radius: _radius,
       soundLevel: _selectedSound,
+      ringtone: _selectedRingtone.name,
       isActive: startNow,
     );
 
@@ -350,7 +354,7 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
                     const SizedBox(height: 24),
 
                     const Text(
-                      'Alarm Sound',
+                      'Volume Level',
                       style: TextStyle(fontWeight: FontWeight.w500),
                     ),
                     const SizedBox(height: 8),
@@ -362,6 +366,49 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
                         const SizedBox(width: 8),
                         Expanded(child: _buildSoundButton('Soft')),
                       ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Ringtone selection
+                    const Text(
+                      'Alarm Sound',
+                      style: TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<AlarmRingtone>(
+                          value: _selectedRingtone,
+                          isExpanded: true,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          borderRadius: BorderRadius.circular(8),
+                          items: AlarmRingtone.values.map((ringtone) {
+                            return DropdownMenuItem<AlarmRingtone>(
+                              value: ringtone,
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.music_note,
+                                    color: Colors.blue[600],
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(ringtone.displayName),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (AlarmRingtone? value) {
+                            if (value != null) {
+                              setState(() => _selectedRingtone = value);
+                            }
+                          },
+                        ),
+                      ),
                     ),
                     const SizedBox(height: 32),
 

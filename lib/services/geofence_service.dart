@@ -612,25 +612,27 @@ class GeofenceAlarmService {
       debugPrint('   - isActive: ${alarm.isActive}');
 
       // Stop geofencing monitoring (no need to track anymore - already arrived)
+      // NOTE: On iOS, native code already stopped monitoring in didEnterRegion
       if (Platform.isIOS) {
-        await _nativeIOSGeofenceService.stopGeofencing(alarm.id);
-        debugPrint('✅ Native iOS geofence monitoring stopped (destination reached)');
-      }
+        // Don't call stopGeofencing here - it would stop the alarm sound!
+        // Native iOS already handles: sound, vibration, notification
+        debugPrint('ℹ️ iOS: Native code already handled notification and sound');
+      } else {
+        // Android: Show notification and start sound from Flutter
+        await _showBackgroundNotification(alarm);
+        debugPrint('✅ Notification shown with sound');
 
-      // Show notification with sound
-      await _showBackgroundNotification(alarm);
-      debugPrint('✅ Notification shown with sound');
-
-      // Start alarm sound - keeps playing until user toggles off
-      try {
-        await _alarmSoundService.startAlarm(
-          alarmId: alarm.id,
-          soundLevel: alarm.soundLevel,
-        );
-        debugPrint('✅ Alarm sound started - will continue until user disables');
-      } catch (e) {
-        debugPrint('⚠️ Could not start app alarm sound (app may be in background): $e');
-        debugPrint('   Alarm sound will play through notification');
+        try {
+          await _alarmSoundService.startAlarm(
+            alarmId: alarm.id,
+            soundLevel: alarm.soundLevel,
+            ringtone: alarm.ringtone,
+          );
+          debugPrint('✅ Alarm sound started - will continue until user disables');
+        } catch (e) {
+          debugPrint('⚠️ Could not start app alarm sound (app may be in background): $e');
+          debugPrint('   Alarm sound will play through notification');
+        }
       }
 
       // Notify UI to refresh alarm list (if callback is set)

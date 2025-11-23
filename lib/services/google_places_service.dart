@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// Service for interacting with the new Google Places API
@@ -159,49 +160,61 @@ class GooglePlacesService {
   }
 
   /// Reverse Geocode - Convert latitude/longitude to human-readable address
-  /// https://developers.google.com/maps/documentation/places/web-service/reverse-geocode
+  /// Uses Google Geocoding API
   Future<String?> reverseGeocode({
     required double lat,
     required double lng,
     String? languageCode = 'en',
   }) async {
-    final url = Uri.parse('$_baseUrl/places:reverseGeocode');
-
-    final body = {
-      'latlng': {'latitude': lat, 'longitude': lng},
-    };
+    // Use Google Geocoding API
+    final url = Uri.parse(
+      'https://maps.googleapis.com/maps/api/geocode/json'
+      '?latlng=$lat,$lng'
+      '&key=$apiKey'
+      '&result_type=street_address|route|neighborhood|sublocality|locality'
+      '${languageCode != null ? '&language=$languageCode' : ''}'
+    );
 
     try {
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': apiKey,
-          'X-Goog-FieldMask': 'places.formattedAddress,places.displayName',
-          if (languageCode != null) 'X-Goog-Language-Code': languageCode,
-        },
-        body: jsonEncode(body),
-      );
+      debugPrint('🔍 Reverse geocoding: $lat, $lng');
+      debugPrint('   URL: $url');
+      final response = await http.get(url);
+
+      debugPrint('   Response status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final places = data['places'] as List<dynamic>?;
+        final status = data['status'] as String?;
+        final errorMessage = data['error_message'] as String?;
 
-        if (places != null && places.isNotEmpty) {
-          final first = places.first as Map<String, dynamic>;
-          return first['formattedAddress'] as String? ??
-              (first['displayName']?['text'] as String?);
+        debugPrint('   Geocoding status: $status');
+        if (errorMessage != null) {
+          debugPrint('   Error message: $errorMessage');
+        }
+
+        if (status == 'OK') {
+          final results = data['results'] as List<dynamic>?;
+
+          if (results != null && results.isNotEmpty) {
+            // Get the first result's formatted address
+            final firstAddress = results.first['formatted_address'] as String?;
+            debugPrint('✅ Found address: $firstAddress');
+            return firstAddress;
+          }
+        } else if (status == 'ZERO_RESULTS') {
+          debugPrint('⚠️ No results found for this location');
+          return null;
+        } else {
+          debugPrint('⚠️ Geocoding error: $status - $errorMessage');
         }
         return null;
       } else {
-        throw PlacesApiException(
-          'Reverse Geocode failed: ${response.statusCode} - ${response.body}',
-          response.statusCode,
-        );
+        debugPrint('❌ HTTP error: ${response.statusCode}');
+        return null;
       }
     } catch (e) {
-      if (e is PlacesApiException) rethrow;
-      throw PlacesApiException('Network error: $e', 0);
+      debugPrint('❌ Reverse geocoding exception: $e');
+      return null;
     }
   }
 }
