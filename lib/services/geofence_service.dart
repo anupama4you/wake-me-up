@@ -31,6 +31,12 @@ void geofenceCallbackDispatcher() {
       if (triggerType == GeofenceEventType.enter) {
         debugPrint('✅ ENTER event detected - processing alarm...');
 
+        // On iOS, native geofencing handles notifications - skip Flutter notifications
+        if (Platform.isIOS) {
+          debugPrint('📱 iOS: Native geofence handles notifications, skipping Flutter notification');
+          return Future.value(true);
+        }
+
         try {
           // CRITICAL: Parse alarm data from zone ID
           // Format: alarmId|||alarmName|||address|||soundLevel
@@ -48,7 +54,7 @@ void geofenceCallbackDispatcher() {
             debugPrint('   - Address: $address');
             debugPrint('   - Sound Level: $soundLevel');
 
-            // Show notification with sound (this works in background)
+            // Show notification with sound (this works in background) - Android only
             debugPrint('📢 Sending notification with alarm sound...');
             await _showBackgroundNotificationSimple(
               alarmId: alarmId,

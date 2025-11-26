@@ -3,10 +3,13 @@ import 'package:audioplayers/audioplayers.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
 import '../services/geofence_service.dart';
+import '../services/alarm_storage_service.dart';
 import '../services/alarm_sound_service.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({Key? key}) : super(key: key);
+  final VoidCallback? onSettingsApplied;
+
+  const SettingsScreen({Key? key, this.onSettingsApplied}) : super(key: key);
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -90,6 +93,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ]),
+            const SizedBox(height: 16),
+            // Apply to All Alarms button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _applySettingsToAllAlarms,
+                icon: const Icon(Icons.sync, size: 20),
+                label: const Text('Apply Settings to All Alarms'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                  ),
+                ),
+              ),
+            ),
             const SizedBox(height: 24),
             _buildSectionTitle('GPS SETTINGS'),
             _buildSettingsCard([
@@ -231,6 +252,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('✅ Geofence settings reloaded');
     } catch (e) {
       debugPrint('⚠️ Error reloading geofence settings: $e');
+    }
+  }
+
+  /// Apply current settings to all existing alarms
+  Future<void> _applySettingsToAllAlarms() async {
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Apply to All Alarms?'),
+        content: Text(
+          'This will update all existing alarms with:\n\n'
+          '• Radius: ${_defaultRadius.toInt()}m\n'
+          '• Volume: $_defaultSoundLevel\n'
+          '• Ringtone: ${_defaultRingtone.displayName}\n\n'
+          'Active alarms will be restarted with new settings.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+            ),
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      // Get all alarms
+      final alarms = AlarmStorageService.getAllAlarms();
+      if (alarms.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No alarms to update')),
+          );
+        }
+        return;
+      }
+
+      final geofenceService = GeofenceAlarmService();
+      int updatedCount = 0;
+
+      for (final alarm in alarms) {
+        // Create updated alarm with new settings using copyWith
+        final updatedAlarm = alarm.copyWith(
+          radius: _defaultRadius,
+          soundLevel: _defaultSoundLevel,
+          ringtone: _defaultRingtone.name,
+        );
+
+        // Save updated alarm
+        await AlarmStorageService.updateAlarm(updatedAlarm);
+
+        // If alarm is active, restart geofencing with new settings
+        if (updatedAlarm.isActive) {
+          await geofenceService.stopGeofencing(updatedAlarm.id);
+          await geofenceService.startGeofencing(updatedAlarm);
+        }
+
+        updatedCount++;
+      }
+
+      debugPrint('✅ Updated $updatedCount alarms with new settings');
+
+      // Notify parent to refresh the home screen
+      widget.onSettingsApplied?.call();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Updated $updatedCount alarm${updatedCount != 1 ? 's' : ''} with new settings'),
+            backgroundColor: AppTheme.accentGreen,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error applying settings to alarms: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating alarms: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 }

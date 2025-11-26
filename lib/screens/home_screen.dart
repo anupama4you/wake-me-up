@@ -304,7 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Center(
           child: Image.asset(
-            'assets/icons/Wake_text.png',
+            'assets/icons/wakemeup_text.png',
             height: 36,
             fit: BoxFit.contain,
           ),
@@ -788,7 +788,9 @@ class _AlarmCard extends StatelessWidget {
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: AppTheme.successColor.withValues(alpha: 0.15),
+                                    color: AppTheme.successColor.withValues(
+                                      alpha: 0.15,
+                                    ),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Row(
@@ -1039,9 +1041,7 @@ class _MetaChip extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: AppTheme.labelMedium.copyWith(
-              color: contentColor,
-            ),
+            style: AppTheme.labelMedium.copyWith(color: contentColor),
           ),
         ],
       ),
@@ -1255,7 +1255,9 @@ class _CompletedProgressIndicator extends StatelessWidget {
             value: 1.0,
             minHeight: 6,
             backgroundColor: AppTheme.successColor.withValues(alpha: 0.2),
-            valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.successColor),
+            valueColor: const AlwaysStoppedAnimation<Color>(
+              AppTheme.successColor,
+            ),
           ),
         ),
       ],

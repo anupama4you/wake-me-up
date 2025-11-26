@@ -1,7 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
 import '../services/alarm_storage_service.dart';
 import '../services/geofence_service.dart';
+import '../services/location_service.dart';
 import '../utils/error_handler.dart';
 import 'home_screen.dart';
 import 'map_view_screen.dart';
@@ -20,11 +23,80 @@ class _MainScreenState extends State<MainScreen> {
   List<Alarm> _alarms = [];
   bool _isLoading = true;
   GeofenceAlarmService? _geofenceService;
+  bool _hasAlwaysPermission = true; // Assume true initially
+  bool _permissionChecked = false;
 
   @override
   void initState() {
     super.initState();
     _initializeAndLoadAlarms();
+    _checkLocationPermission();
+  }
+
+  /// Check if we have "Always" location permission (required for background geofencing)
+  Future<void> _checkLocationPermission() async {
+    if (!Platform.isIOS) {
+      // On Android, check for background permission differently
+      final hasBackground = await LocationService.hasBackgroundPermission();
+      if (mounted) {
+        setState(() {
+          _hasAlwaysPermission = hasBackground;
+          _permissionChecked = true;
+        });
+      }
+      return;
+    }
+
+    // On iOS, check for "Always" permission
+    final permission = await Geolocator.checkPermission();
+    debugPrint('📍 Current location permission: $permission');
+
+    if (mounted) {
+      setState(() {
+        _hasAlwaysPermission = permission == LocationPermission.always;
+        _permissionChecked = true;
+      });
+    }
+  }
+
+  /// Request "Always" location permission
+  Future<void> _requestAlwaysPermission() async {
+    final result = await LocationService.requestPermissionDetailed();
+    debugPrint('📍 Permission request result: $result');
+
+    // Re-check permission status
+    await _checkLocationPermission();
+
+    if (!_hasAlwaysPermission && mounted) {
+      // Still don't have permission - offer to open settings
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Background Location Required'),
+          content: const Text(
+            'For alarms to work when the app is closed or phone is locked, please:\n\n'
+            '1. Open Settings\n'
+            '2. Go to Privacy & Security > Location Services\n'
+            '3. Find WakeMeUp\n'
+            '4. Select "Always"\n\n'
+            'Without this, alarms will only work while the app is open.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Later'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                LocationService.openLocationSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override
@@ -303,11 +375,19 @@ class _MainScreenState extends State<MainScreen> {
         onRefreshNeeded: _loadAlarms, // Reload alarms when edit completes
       ),
       MapViewScreen(alarms: _alarms),
-      const SettingsScreen(),
+      SettingsScreen(onSettingsApplied: _loadAlarms),
     ];
 
     return Scaffold(
-      body: screens[_selectedIndex],
+      body: Column(
+        children: [
+          // Show permission warning banner if needed
+          if (_permissionChecked && !_hasAlwaysPermission)
+            _buildPermissionWarningBanner(),
+          // Main content
+          Expanded(child: screens[_selectedIndex]),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         items: const [
           BottomNavigationBarItem(
@@ -322,6 +402,56 @@ class _MainScreenState extends State<MainScreen> {
         ],
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
+      ),
+    );
+  }
+
+  /// Build a warning banner for missing "Always" location permission
+  Widget _buildPermissionWarningBanner() {
+    return Material(
+      color: Colors.orange.shade700,
+      child: SafeArea(
+        bottom: false,
+        child: InkWell(
+          onTap: _requestAlwaysPermission,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.white),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        Platform.isIOS
+                            ? 'Background Location Required'
+                            : 'Background Permission Required',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        Platform.isIOS
+                            ? 'Tap to enable "Always" for alarms to work when locked'
+                            : 'Tap to enable for alarms to work in background',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: Colors.white70),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

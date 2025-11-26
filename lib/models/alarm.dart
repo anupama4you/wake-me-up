@@ -60,4 +60,33 @@ class Alarm {
           : null,
     );
   }
+
+  /// Create a copy of this alarm with updated fields
+  Alarm copyWith({
+    String? id,
+    String? name,
+    String? address,
+    double? latitude,
+    double? longitude,
+    double? radius,
+    String? soundLevel,
+    String? ringtone,
+    bool? isActive,
+    bool? isCompleted,
+    DateTime? completedAt,
+  }) {
+    return Alarm(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      address: address ?? this.address,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      radius: radius ?? this.radius,
+      soundLevel: soundLevel ?? this.soundLevel,
+      ringtone: ringtone ?? this.ringtone,
+      isActive: isActive ?? this.isActive,
+      isCompleted: isCompleted ?? this.isCompleted,
+      completedAt: completedAt ?? this.completedAt,
+    );
+  }
 }

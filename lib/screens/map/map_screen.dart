@@ -297,11 +297,32 @@ class _MapScreenState extends State<MapScreen> {
 
   void _centerOnLocation(LatLng position) {
     if (_mapController == null) return;
+    // Calculate zoom level to show the radius fully
+    final zoomLevel = _calculateZoomForRadius(_triggerRadius);
     _mapController!.animateCamera(
       CameraUpdate.newCameraPosition(
-        CameraPosition(target: position, zoom: 16), // zoom = 16 for closer view
+        CameraPosition(target: position, zoom: zoomLevel),
       ),
     );
+  }
+
+  /// Calculate the appropriate zoom level to show the entire radius circle
+  double _calculateZoomForRadius(double radiusInMeters) {
+    // At zoom level 15, roughly 1 pixel = 4.77 meters at the equator
+    // We want the radius to take up about 1/3 of the screen (visible with padding)
+    // Screen is roughly 400 logical pixels wide, so we want radius to be ~130 pixels
+    // Formula: zoom = log2(156543.03 * cos(lat) / metersPerPixel)
+    // For simplicity, use a lookup approach:
+
+    if (radiusInMeters <= 100) return 17.0;
+    if (radiusInMeters <= 200) return 16.5;
+    if (radiusInMeters <= 300) return 16.0;
+    if (radiusInMeters <= 500) return 15.5;
+    if (radiusInMeters <= 750) return 15.0;
+    if (radiusInMeters <= 1000) return 14.5;
+    if (radiusInMeters <= 1500) return 14.0;
+    if (radiusInMeters <= 2000) return 13.5;
+    return 13.0;
   }
 
   void _onSearchChanged(String input) {
@@ -471,7 +492,8 @@ class _MapScreenState extends State<MapScreen> {
       }
     }
 
-    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_getOffsetPosition(currentLoc), 13.5));
+    // Center directly on current location without offset
+    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(currentLoc, 15.0));
   }
 
   Future<void> _saveAlarm(bool activate) async {
@@ -962,6 +984,12 @@ class _MapScreenState extends State<MapScreen> {
                                   _triggerRadius = value;
                                   _updateMapMarkers();
                                 });
+                              },
+                              onChangeEnd: (value) {
+                                // After radius change, zoom to show the full circle
+                                if (_selectedLocation != null) {
+                                  _centerOnLocation(_selectedLocation!);
+                                }
                               },
                             ),
                             Row(
