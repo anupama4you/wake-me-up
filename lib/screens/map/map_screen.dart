@@ -556,13 +556,7 @@ class _MapScreenState extends State<MapScreen> {
 
       if (!mounted) return;
 
-      // Show success message
-      ErrorHandler.showSuccessSnackBar(
-        context,
-        activate
-            ? 'Alarm activated successfully!'
-            : 'Alarm saved successfully',
-      );
+      // Removed success notification - user can see alarm state in UI
 
       // Return to previous screen
       Navigator.of(context).pop(alarm);

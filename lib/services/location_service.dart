@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
+import 'settings_service.dart';
 
 /// Result of location permission request
 enum LocationPermissionResult {
@@ -161,9 +162,16 @@ class LocationService {
 
   static Future<Position?> getCurrentPosition() async {
     try {
+      // Use high accuracy setting from SettingsService
+      final useHighAccuracy = SettingsService.highAccuracy;
+      final accuracy = useHighAccuracy ? LocationAccuracy.high : LocationAccuracy.medium;
+
       debugPrint('📍 Getting current position...');
+      debugPrint('   - High accuracy mode: $useHighAccuracy');
+      debugPrint('   - Accuracy: ${accuracy.name}');
+
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        desiredAccuracy: accuracy,
         timeLimit: const Duration(seconds: 10),
       );
       debugPrint('✅ Got position: ${position.latitude}, ${position.longitude}');
@@ -176,13 +184,24 @@ class LocationService {
   }
 
   static Stream<Position> getLocationStream() {
+    // Use settings from SettingsService
+    final useHighAccuracy = SettingsService.highAccuracy;
+    final accuracy = useHighAccuracy ? LocationAccuracy.high : LocationAccuracy.medium;
+    final updateInterval = SettingsService.updateInterval;
+    final distanceFilter = useHighAccuracy ? 10 : 20; // meters between updates
+
     debugPrint('📍 Starting location stream...');
+    debugPrint('   - High accuracy mode: $useHighAccuracy');
+    debugPrint('   - Accuracy: ${accuracy.name}');
+    debugPrint('   - Update interval: ${updateInterval}s');
+    debugPrint('   - Distance filter: ${distanceFilter}m');
+
     return Geolocator.getPositionStream(
       locationSettings: LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10, // Update every 10 meters
+        accuracy: accuracy,
+        distanceFilter: distanceFilter,
         // iOS specific settings
-        timeLimit: const Duration(seconds: 5),
+        timeLimit: Duration(seconds: updateInterval),
       ),
     );
   }

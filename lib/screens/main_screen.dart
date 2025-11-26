@@ -18,7 +18,7 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> {
+class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   List<Alarm> _alarms = [];
   bool _isLoading = true;
@@ -29,8 +29,73 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    // Add lifecycle observer to detect when app resumes
+    WidgetsBinding.instance.addObserver(this);
     _initializeAndLoadAlarms();
     _checkLocationPermission();
+    // Request location permission on first launch
+    _requestInitialPermissionIfNeeded();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // When app resumes from background (e.g., returning from Settings)
+    // recheck location permission to update banner
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('📱 App resumed - rechecking location permission...');
+      _checkLocationPermission();
+    }
+  }
+
+  /// Request location permission on first app launch
+  Future<void> _requestInitialPermissionIfNeeded() async {
+    // Wait a bit for UI to load
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    final permission = await Geolocator.checkPermission();
+    debugPrint('📍 Initial permission check: $permission');
+
+    // If permission is not determined (first launch), request it immediately
+    if (permission == LocationPermission.denied) {
+      if (!mounted) return;
+
+      // Show welcome dialog explaining the permission
+      final shouldRequest = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.waving_hand, color: Colors.orange, size: 28),
+              SizedBox(width: 12),
+              Flexible(child: Text('Welcome to WakeMeUp!')),
+            ],
+          ),
+          content: const Text(
+            'WakeMeUp helps you wake up when you arrive at your destination.\n\n'
+            'To work properly, we need:\n\n'
+            '✓ Location access (Always)\n'
+            '✓ Background location tracking\n\n'
+            'Tap "Get Started" to grant location permission.',
+            style: TextStyle(height: 1.5),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Get Started'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldRequest == true) {
+        // Request permissions
+        await LocationService.requestPermissionDetailed();
+        // Update permission status
+        await _checkLocationPermission();
+      }
+    }
   }
 
   /// Check if we have "Always" location permission (required for background geofencing)
@@ -101,6 +166,8 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   void dispose() {
+    // Remove lifecycle observer
+    WidgetsBinding.instance.removeObserver(this);
     // Clear callback when screen is disposed
     _geofenceService?.onAlarmCompleted = null;
     super.dispose();
@@ -253,12 +320,7 @@ class _MainScreenState extends State<MainScreen> {
 
         debugPrint('✅ Geofencing started for: ${alarm.name}');
 
-        if (mounted) {
-          ErrorHandler.showSuccessSnackBar(
-            context,
-            'Alarm "${alarm.name}" activated',
-          );
-        }
+        // Removed success notification - user can see alarm state in UI
       } else {
         // Stop geofencing for the deactivated alarm
         await _geofenceService!.stopGeofencing(id);
@@ -280,11 +342,7 @@ class _MainScreenState extends State<MainScreen> {
         // Reload alarms to refresh UI with reset status
         await _loadAlarms();
 
-        if (!mounted) return;
-        ErrorHandler.showSuccessSnackBar(
-          context,
-          'Alarm "${alarm.name}" deactivated',
-        );
+        // Removed success notification - user can see alarm state in UI
       }
     } catch (e, stackTrace) {
       debugPrint('❌ Error toggling alarm: $e');
@@ -344,7 +402,46 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Future<void> _handleAddAlarm() async {
+    // CRITICAL: Check location permission before allowing alarm creation
+    final permission = await Geolocator.checkPermission();
+    final hasBackground = await LocationService.hasBackgroundPermission();
+
+    debugPrint('📍 Permission check: $permission, hasBackground: $hasBackground');
+
+    // Require "Always" permission (or background permission on Android)
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever ||
+        !hasBackground) {
+
+      // Show mandatory permission dialog
+      final shouldRequest = await _showPermissionRequiredDialog();
+
+      if (shouldRequest == true) {
+        // Request permission
+        final result = await LocationService.requestPermissionDetailed();
+        debugPrint('📍 Permission request result: $result');
+
+        // Check again after request
+        final newPermission = await Geolocator.checkPermission();
+        final newHasBackground = await LocationService.hasBackgroundPermission();
+
+        if (newPermission == LocationPermission.denied ||
+            newPermission == LocationPermission.deniedForever ||
+            !newHasBackground) {
+          // Still denied - show settings dialog
+          await _showOpenSettingsDialog();
+          return; // Don't allow alarm creation
+        }
+      } else {
+        return; // User cancelled
+      }
+    }
+
+    // Permission granted - proceed to create alarm
     debugPrint('🔄 MainScreen: Navigating to add alarm...');
+
+    if (!mounted) return;
+
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const MapScreen()),
@@ -357,6 +454,79 @@ class _MainScreenState extends State<MainScreen> {
     await _loadAlarms();
 
     // No app notification - phone notification will show if alarm is active
+  }
+
+  /// Show dialog explaining why location permission is required
+  Future<bool?> _showPermissionRequiredDialog() async {
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false, // Force user to make a choice
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.location_on, color: Colors.orange, size: 28),
+            SizedBox(width: 12),
+            Flexible(child: Text('Location Permission Required')),
+          ],
+        ),
+        content: const Text(
+          'WakeMeUp needs location permission to:\n\n'
+          '✓ Detect when you arrive at your destination\n'
+          '✓ Trigger alarms in the background\n'
+          '✓ Work when the app is closed\n\n'
+          'Please grant "Always Allow" permission to create alarms.',
+          style: TextStyle(height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Grant Permission'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show dialog to open settings when permission is denied
+  Future<void> _showOpenSettingsDialog() async {
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red, size: 28),
+            SizedBox(width: 12),
+            Flexible(child: Text('Permission Denied')),
+          ],
+        ),
+        content: const Text(
+          'Location permission is required to create alarms.\n\n'
+          'Please:\n'
+          '1. Open Settings\n'
+          '2. Go to Location\n'
+          '3. Select "Always Allow"\n\n'
+          'Alarms cannot be created without this permission.',
+          style: TextStyle(height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              LocationService.openLocationSettings();
+            },
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

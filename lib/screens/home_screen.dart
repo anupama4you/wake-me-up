@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
 import '../theme/app_theme.dart';
+import '../services/settings_service.dart';
 import 'map_screen.dart';
 import 'alarm_detail_map_screen.dart';
 
@@ -28,7 +29,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool _isEditMode = false;
   Position? _currentLocation;
   Timer? _locationUpdateTimer;
 
@@ -49,8 +49,12 @@ class _HomeScreenState extends State<HomeScreen> {
     // Get initial location
     _updateCurrentLocation();
 
-    // Set up periodic updates every 3 seconds
-    _locationUpdateTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+    // Use update interval from settings
+    final updateInterval = SettingsService.updateInterval;
+    debugPrint('📍 Home screen location tracking: ${updateInterval}s interval');
+
+    // Set up periodic updates based on settings
+    _locationUpdateTimer = Timer.periodic(Duration(seconds: updateInterval), (_) {
       _updateCurrentLocation();
     });
   }
@@ -69,9 +73,12 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      // Get current position
+      // Get current position using settings
+      final useHighAccuracy = SettingsService.highAccuracy;
+      final accuracy = useHighAccuracy ? LocationAccuracy.high : LocationAccuracy.medium;
+
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+        desiredAccuracy: accuracy,
       );
 
       if (mounted) {
@@ -268,6 +275,167 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Navigate to edit alarm screen
+  Future<void> _editAlarm(BuildContext context, Alarm alarm) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MapScreen(existingAlarm: alarm),
+      ),
+    );
+    // Trigger refresh after editing
+    widget.onRefreshNeeded?.call();
+  }
+
+  /// Show delete confirmation dialog
+  Future<bool> _confirmDelete(BuildContext context, Alarm alarm) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Alarm'),
+        content: Text('Are you sure you want to delete "${alarm.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      widget.onDeleteAlarm(alarm.id);
+      return true;
+    }
+    return false;
+  }
+
+  /// Show help dialog with instructions
+  Future<void> _showHelpDialog(BuildContext context) async {
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.help_outline, color: AppTheme.primaryColor, size: 28),
+            SizedBox(width: AppTheme.paddingMedium),
+            Text('How to Use WakeMeUp'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHelpSection(
+                '📍 Creating an Alarm',
+                '1. Tap the + button\n'
+                '2. Select a location on the map\n'
+                '3. Set your alarm radius and sound\n'
+                '4. Toggle the alarm ON',
+              ),
+              const SizedBox(height: 16),
+              _buildHelpSection(
+                '✏️ Editing an Alarm',
+                '• Tap inactive alarm to edit\n'
+                '• Or swipe right on any alarm',
+              ),
+              const SizedBox(height: 16),
+              _buildHelpSection(
+                '🗑️ Deleting an Alarm',
+                'Swipe left on any alarm',
+              ),
+              const SizedBox(height: 16),
+              _buildHelpSection(
+                '⚙️ Settings',
+                '• Default radius and sound\n'
+                '• High accuracy GPS mode\n'
+                '• Location update interval\n'
+                '• Apply settings to all alarms',
+              ),
+              const SizedBox(height: 16),
+              _buildHelpSection(
+                '📱 Permissions Required',
+                '• Location: Always (for background)\n'
+                '• Notifications: Enabled',
+              ),
+              const Divider(height: 24),
+              _buildHelpSection(
+                '✉️ Contact & Support',
+                'For questions or feedback:\n'
+                'Email: support@wakemeup.app',
+                isContact: true,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Got it!'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHelpSection(String title, String content, {bool isContact = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: AppTheme.labelLarge.copyWith(
+            fontWeight: FontWeight.bold,
+            color: isContact ? AppTheme.primaryColor : AppTheme.textPrimaryColor,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          content,
+          style: AppTheme.bodySmall.copyWith(
+            color: AppTheme.textSecondaryColor,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Build swipe background for edit/delete actions
+  Widget _buildSwipeBackground(bool isEdit) {
+    return Container(
+      decoration: BoxDecoration(
+        color: (isEdit ? AppTheme.primaryColor : AppTheme.errorColor)
+            .withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppTheme.radiusXLarge),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: AppTheme.paddingMedium),
+      alignment: isEdit ? Alignment.centerLeft : Alignment.centerRight,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isEdit ? Icons.edit_rounded : Icons.delete_rounded,
+            color: isEdit ? AppTheme.primaryColor : AppTheme.errorColor,
+          ),
+          const SizedBox(width: AppTheme.paddingSmall),
+          Text(
+            isEdit ? 'Edit' : 'Delete',
+            style: AppTheme.labelLarge.copyWith(
+              color: isEdit ? AppTheme.primaryColor : AppTheme.errorColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Show maximum limit dialog
   Future<void> _showMaxLimitDialog(BuildContext context) async {
     await showDialog(
@@ -302,6 +470,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(
+            Icons.help_outline,
+            color: AppTheme.textOnPrimaryColor,
+          ),
+          onPressed: () => _showHelpDialog(context),
+          tooltip: 'Help & Instructions',
+        ),
         title: Center(
           child: Image.asset(
             'assets/icons/wakemeup_text.png',
@@ -312,17 +488,6 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: true,
         backgroundColor: AppTheme.primaryColor,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            _isEditMode ? Icons.done : Icons.edit,
-            color: AppTheme.textOnPrimaryColor,
-          ),
-          onPressed: () {
-            setState(() {
-              _isEditMode = !_isEditMode;
-            });
-          },
-        ),
         actions: [
           // Show active alarm indicator badge
           if (activeCount > 0)
@@ -386,40 +551,42 @@ class _HomeScreenState extends State<HomeScreen> {
                     progress = _calculateProgress(distance, alarm.radius);
                   }
 
-                  return _AlarmCard(
-                    alarm: alarm,
-                    isEditMode: _isEditMode,
-                    currentDistance: distance,
-                    progress: progress,
-                    onTap: () {
-                      // Navigate to live map detail view
-                      if (alarm.isActive) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                AlarmDetailMapScreen(alarm: alarm),
-                          ),
-                        );
+                  // Wrap card with Dismissible for swipe actions
+                  return Dismissible(
+                    key: ValueKey(alarm.id),
+                    confirmDismiss: (direction) async {
+                      if (direction == DismissDirection.endToStart) {
+                        // Swipe left - Delete action
+                        return await _confirmDelete(context, alarm);
+                      } else if (direction == DismissDirection.startToEnd) {
+                        // Swipe right - Edit action
+                        await _editAlarm(context, alarm);
+                        return false; // Don't dismiss
                       }
+                      return false;
                     },
-                    onEdit: () async {
-                      // Navigate to edit screen
-                      await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => MapScreen(existingAlarm: alarm),
-                        ),
-                      );
-                      // Exit edit mode after editing
-                      setState(() {
-                        _isEditMode = false;
-                      });
-                      // Trigger refresh after editing
-                      widget.onRefreshNeeded?.call();
-                    },
-                    onDelete: () => widget.onDeleteAlarm(alarm.id),
-                    onToggle: (active) async {
+                    background: _buildSwipeBackground(true), // Edit (left side)
+                    secondaryBackground: _buildSwipeBackground(false), // Delete (right side)
+                    child: _AlarmCard(
+                      alarm: alarm,
+                      currentDistance: distance,
+                      progress: progress,
+                      onTap: () {
+                        if (alarm.isActive) {
+                          // Active alarm: Navigate to live map detail view
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) =>
+                                  AlarmDetailMapScreen(alarm: alarm),
+                            ),
+                          );
+                        } else {
+                          // Inactive alarm: Navigate to edit screen
+                          _editAlarm(context, alarm);
+                        }
+                      },
+                      onToggle: (active) async {
                       // If we're turning ON an inactive alarm:
                       if (active && !alarm.isActive) {
                         // Count currently active alarms
@@ -453,7 +620,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       // Otherwise just forward the toggle
                       widget.onToggleAlarm(alarm.id, active);
                     },
-                  );
+                  ),
+                  ); // Close Dismissible widget
                 },
               ),
       ),
@@ -620,10 +788,7 @@ class _DismissibleAlarmCard extends StatelessWidget {
 class _AlarmCard extends StatelessWidget {
   final Alarm alarm;
   final VoidCallback onTap;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
   final ValueChanged<bool> onToggle;
-  final bool isEditMode;
   final double? currentDistance;
   final int? progress;
 
@@ -631,10 +796,7 @@ class _AlarmCard extends StatelessWidget {
     Key? key,
     required this.alarm,
     required this.onTap,
-    required this.onEdit,
-    required this.onDelete,
     required this.onToggle,
-    required this.isEditMode,
     this.currentDistance,
     this.progress,
   }) : super(key: key);
@@ -646,31 +808,6 @@ class _AlarmCard extends StatelessWidget {
     } else {
       final km = meters / 1000;
       return '${km.toStringAsFixed(1)}km away';
-    }
-  }
-
-  Future<void> _showDeleteConfirmation(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Alarm'),
-        content: Text('Are you sure you want to delete "${alarm.name}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      onDelete();
     }
   }
 
@@ -720,7 +857,7 @@ class _AlarmCard extends StatelessWidget {
       elevation: isActive ? AppTheme.elevationMedium : AppTheme.elevationNone,
       child: InkWell(
         borderRadius: BorderRadius.circular(AppTheme.radiusXLarge),
-        onTap: isEditMode ? onEdit : onTap,
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.all(AppTheme.paddingMedium),
           decoration: cardDecoration,
@@ -753,30 +890,8 @@ class _AlarmCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        // Show edit/delete buttons or switch
-                        if (isEditMode)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _ModernActionButton(
-                                icon: Icons.edit_rounded,
-                                color: AppTheme.primaryColor,
-                                onPressed: onEdit,
-                                tooltip: 'Edit',
-                              ),
-                              const SizedBox(width: 8),
-                              _ModernActionButton(
-                                icon: Icons.delete_rounded,
-                                color: AppTheme.errorColor,
-                                onPressed: () =>
-                                    _showDeleteConfirmation(context),
-                                tooltip: 'Delete',
-                              ),
-                            ],
-                          )
-                        else
-                          // Always show switch - completed alarms can be toggled off
-                          Row(
+                        // Always show switch - completed alarms can be toggled off
+                        Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               // Show completed badge next to switch when completed
