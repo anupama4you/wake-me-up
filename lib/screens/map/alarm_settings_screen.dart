@@ -76,7 +76,7 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
       return;
     }
 
-    // Check trip distance against tier limits
+    // Check trip distance against tier limits (MANDATORY - blocks creation if validation fails)
     try {
       final currentPosition = await Geolocator.getCurrentPosition();
       final distanceKm = TripDistanceCalculator.calculateDistanceFromPosition(
@@ -85,17 +85,32 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
         targetLon: widget.selectedLocation.longitude,
       );
 
+      debugPrint('🔍 Trip distance validation: ${distanceKm.toStringAsFixed(1)}km');
+
       // Validate distance against tier limits
       final tierError = await TierService.canCreateAlarmAtDistance(distanceKm);
       if (tierError != null) {
+        debugPrint('⚠️ Trip distance exceeds tier limit: $tierError');
         // Show upgrade dialog
         if (!mounted) return;
         await _showDistanceLimitDialog(tierError, distanceKm);
         return;
       }
+
+      debugPrint('✅ Trip distance within tier limits');
     } catch (e) {
-      debugPrint('⚠️ Could not validate trip distance: $e');
-      // Continue anyway - don't block alarm creation if location fails
+      debugPrint('❌ Failed to validate trip distance: $e');
+      if (!mounted) return;
+
+      // BLOCK alarm creation if location validation fails
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Cannot validate trip distance: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
     }
 
     final alarm = Alarm(

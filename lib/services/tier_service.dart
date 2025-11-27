@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/tier.dart';
 
@@ -9,7 +10,9 @@ class TierService {
   static Future<Tier> getCurrentTier() async {
     final prefs = await SharedPreferences.getInstance();
     final tierIndex = prefs.getInt(_tierKey) ?? 0; // 0 = free
-    return Tier.values[tierIndex];
+    final tier = Tier.values[tierIndex];
+    debugPrint('🎫 Current tier: ${tier.name} (index: $tierIndex)');
+    return tier;
   }
 
   /// Set user tier (for testing/mocking upgrade)
@@ -27,21 +30,29 @@ class TierService {
   /// Check if user can create alarm at specified distance from current location
   /// Returns null if allowed, error message if not allowed
   static Future<String?> canCreateAlarmAtDistance(double distanceKm) async {
+    final currentTier = await getCurrentTier();
     final limits = await getTierLimits();
 
+    debugPrint('🎫 Checking distance limit: ${distanceKm.toStringAsFixed(1)}km');
+    debugPrint('   Current tier: ${currentTier.displayName}');
+    debugPrint('   Max distance: ${limits.formattedTripDistance}');
+
     if (limits.hasUnlimitedDistance) {
+      debugPrint('   ✅ Unlimited distance (Pro tier)');
       return null; // Pro tier - unlimited distance
     }
 
     if (distanceKm > limits.maxTripDistanceKm) {
-      final currentTier = await getCurrentTier();
       final requiredTier = _getRequiredTierForDistance(distanceKm);
 
+      debugPrint('   ❌ Distance exceeds limit! Required: ${requiredTier.displayName}');
+
       return 'This location is ${distanceKm.toStringAsFixed(1)}km away. '
-          'Your ${currentTier.displayName} plan allows up to ${limits.maxTripDistanceKm.toInt()}km. '
+          'Your ${currentTier.displayName} plan allows up to ${limits.formattedTripDistance}. '
           'Upgrade to ${requiredTier.displayName} (${requiredTier.price}) for longer trips.';
     }
 
+    debugPrint('   ✅ Distance within limit');
     return null; // Within limits
   }
 

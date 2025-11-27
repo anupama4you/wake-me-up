@@ -525,9 +525,10 @@ import AVFoundation
         object: session
       )
 
-      // Use .playback category - this allows background audio
-      // .mixWithOthers is removed to ensure our alarm takes priority
-      try session.setCategory(.playback, mode: .default, options: [])
+      // Use .playback category with duckOthers option - this allows background audio
+      // and automatically lowers the volume of other audio (music, podcasts, etc.)
+      // This ensures the alarm is heard even when bluetooth audio is playing
+      try session.setCategory(.playback, mode: .default, options: [.duckOthers])
       try session.setActive(true, options: [])
       print("✅ Audio session configured for BACKGROUND playback")
       print("   - Category: \(session.category.rawValue)")
@@ -688,7 +689,12 @@ import AVFoundation
       audioPlayer = try AVAudioPlayer(contentsOf: url)
       audioPlayer?.delegate = self
       audioPlayer?.numberOfLoops = loop ? -1 : 0 // -1 = infinite loop (works in background!)
-      audioPlayer?.volume = 1.0
+      audioPlayer?.volume = 1.0 // Maximum volume
+
+      // Force audio to play through available output (bluetooth, speaker, etc.)
+      // This ensures alarm plays even when bluetooth is connected
+      try AVAudioSession.sharedInstance().overrideOutputAudioPort(.none) // Use default (current) output
+
       audioPlayer?.prepareToPlay()
 
       let success = audioPlayer?.play() ?? false

@@ -2,14 +2,18 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
+import '../models/tier.dart';
 import '../services/alarm_storage_service.dart';
 import '../services/geofence_service.dart';
 import '../services/location_service.dart';
+import '../services/tier_service.dart';
 import '../utils/error_handler.dart';
+import '../utils/trip_distance_calculator.dart';
 import 'home_screen.dart';
 import 'map_view_screen.dart';
 import 'settings_screen.dart';
 import 'map_screen.dart';
+import 'paywall_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({Key? key}) : super(key: key);
@@ -271,6 +275,30 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     final alarm = _alarms.firstWhere((a) => a.id == id);
     final previousState = alarm.isActive;
 
+    // If activating, check trip distance limit first
+    if (active) {
+      try {
+        final currentPosition = await Geolocator.getCurrentPosition();
+        final distanceKm = Geolocator.distanceBetween(
+          currentPosition.latitude,
+          currentPosition.longitude,
+          alarm.latitude,
+          alarm.longitude,
+        ) / 1000;
+
+        final tierError = await TierService.canCreateAlarmAtDistance(distanceKm);
+        if (tierError != null) {
+          // Show upgrade dialog
+          if (!mounted) return;
+          await _showDistanceLimitDialog(tierError, distanceKm);
+          return;
+        }
+      } catch (e) {
+        debugPrint('⚠️ Could not validate trip distance: $e');
+        // Continue anyway - don't block alarm activation if location check fails
+      }
+    }
+
     // Optimistically update UI
     setState(() {
       alarm.isActive = active;
@@ -529,6 +557,79 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// Show trip distance limit dialog
+  Future<void> _showDistanceLimitDialog(String message, double distanceKm) async {
+    final currentTier = await TierService.getCurrentTier();
+    final requiredTier = TripDistanceCalculator.getRequiredTier(distanceKm);
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.lock, color: Theme.of(context).primaryColor, size: 28),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('Trip Distance Limit')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(message),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.place, size: 18, color: Colors.blue),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Trip Distance: ${TripDistanceCalculator.formatDistance(distanceKm)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Required Plan: ${requiredTier.displayName}',
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PaywallScreen(),
+                ),
+              );
+            },
+            child: Text('Upgrade to ${requiredTier.displayName}'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Show loading indicator while loading alarms
@@ -536,8 +637,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    // Create a unique key based on alarm states to force widget updates
+    final activeAlarmIds = _alarms.where((a) => a.isActive).map((a) => a.id).join(',');
+    final alarmKey = '${_alarms.length}-$activeAlarmIds';
+
     final screens = [
       HomeScreen(
+        key: ValueKey(alarmKey), // Force rebuild when alarms or active states change
         alarms: _alarms,
         onToggleAlarm: _toggleAlarm,
         onDeleteAlarm: _deleteAlarm,

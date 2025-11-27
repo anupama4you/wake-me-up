@@ -7,46 +7,46 @@ class AppTheme {
 
   /* ============================= COLORS ============================= */
 
-  // Primary Colors - Winter Chill (Cool, Crisp, Clear)
-  static const Color primaryColor = Color(0xFF4F7C82); // Dark teal - primary actions
-  static const Color primaryLightColor = Color(0xFFB8E3E9); // Light cyan - backgrounds
-  static const Color primaryDarkColor = Color(0xFF0B2E33); // Very dark teal - emphasis
+  // Primary Colors - Lavender Purple Theme
+  static const Color primaryColor = Color(0xFF7461A8); // Darker lavender purple - primary actions
+  static const Color primaryLightColor = Color(0xFFBFB3E6); // Medium lavender
+  static const Color primaryDarkColor = Color(0xFF594988); // Much darker lavender - emphasis
 
-  // Accent Colors - Winter Blue-Gray (Calm, Modern, Professional)
-  static const Color accentGreen = Color(0xFF93B1B5); // Medium gray-blue
-  static const Color accentGreenLight = Color(0xFFB8E3E9); // Light cyan
-  static const Color accentGreenDark = Color(0xFF4F7C82); // Dark teal
+  // Accent Colors - Lavender Variants
+  static const Color accentGreen = Color(0xFF9B8AC4); // Medium-light lavender accent
+  static const Color accentGreenLight = Color(0xFFBFB3E6); // Light lavender
+  static const Color accentGreenDark = Color(0xFF7461A8); // Darker lavender
 
   // Status Colors
-  static const Color successColor = Color(0xFF93B1B5); // Gray-blue (Active alarms)
+  static const Color successColor = Color(0xFF7461A8); // Darker lavender purple (Active alarms)
   static const Color warningColor = Color(0xFFFF6F00); // Orange 800 (Battery warnings)
   static const Color errorColor = Color(0xFFD32F2F); // Red 700 (Delete, critical)
-  static const Color infoColor = Color(0xFF4F7C82); // Dark teal (Info messages)
+  static const Color infoColor = Color(0xFF7461A8); // Darker lavender purple (Info messages)
 
   // Background Colors
-  static const Color backgroundColor = Color(0xFFFAFAFA); // Grey 50
+  static const Color backgroundColor = Color(0xFFF8F5FF); // Light lavender background
   static const Color surfaceColor = Color(0xFFFFFFFF);
   static const Color cardColor = Color(0xFFFFFFFF);
 
   // Text Colors
-  static const Color textPrimaryColor = Color(0xFF212121); // Grey 900
-  static const Color textSecondaryColor = Color(0xFF757575); // Grey 600
-  static const Color textDisabledColor = Color(0xFFBDBDBD); // Grey 400
-  static const Color textOnPrimaryColor = Color(0xFFFFFFFF);
+  static const Color textPrimaryColor = Color(0xFF1A1A1A); // Very dark gray (almost black)
+  static const Color textSecondaryColor = Color(0xFF4A4A4A); // Medium dark gray
+  static const Color textDisabledColor = Color(0xFF9E9E9E); // Medium gray
+  static const Color textOnPrimaryColor = Color(0xFFFFFFFF); // White text on primary
 
   // Border Colors
   static const Color borderColor = Color(0xFFE0E0E0); // Grey 300
   static const Color borderLightColor = Color(0xFFEEEEEE); // Grey 200
   static const Color dividerColor = Color(0xFFBDBDBD);
 
-  // Active Alarm Colors (Winter Chill Theme)
-  static const Color activeAlarmBackground = Color(0xFFE8F4F6); // Very light cyan
-  static const Color activeAlarmBackgroundGradientEnd = Color(0xFFD0E9ED); // Light cyan-gray
-  static const Color activeAlarmBorder = Color(0xFF4F7C82); // Dark teal border
-  static const Color activeAlarmText = Color(0xFF0B2E33); // Very dark teal text
-  static const Color activeAlarmTextSecondary = Color(0xFF4F7C82); // Dark teal
-  static const Color activeAlarmChipBackground = Color(0xFF93B1B5); // Gray-blue chips
-  static const Color activeAlarmIconColor = Color(0xFF4F7C82); // Dark teal icons
+  // Active Alarm Colors (Lavender Purple Theme)
+  static const Color activeAlarmBackground = Color(0xFFEDE8FF); // Light lavender with more saturation
+  static const Color activeAlarmBackgroundGradientEnd = Color(0xFFDDD4FF); // Medium light lavender
+  static const Color activeAlarmBorder = Color(0xFF7461A8); // Darker lavender purple border
+  static const Color activeAlarmText = Color(0xFF1A1A1A); // Very dark gray (almost black)
+  static const Color activeAlarmTextSecondary = Color(0xFF4A4A4A); // Medium dark gray
+  static const Color activeAlarmChipBackground = Color(0xFFBFB3E6); // Medium lavender chips
+  static const Color activeAlarmIconColor = Color(0xFF7461A8); // Darker lavender purple icons
 
   /* ========================== TEXT STYLES ========================== */
 
@@ -338,8 +338,8 @@ class AppTheme {
       gradient: isActive
           ? const LinearGradient(
               colors: [
-                activeAlarmBackground, // Very light cyan
-                Color.fromRGBO(208, 233, 237, 0.5), // Light cyan-gray with transparency
+                activeAlarmBackground, // Light lavender with more saturation
+                Color.fromRGBO(221, 212, 255, 0.6), // Medium lavender with transparency
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -356,7 +356,7 @@ class AppTheme {
           blurRadius: isActive ? 16 : 10,
           offset: const Offset(0, 4),
           color: isActive
-              ? const Color.fromRGBO(79, 124, 130, 0.15) // Dark teal shadow
+              ? const Color.fromRGBO(116, 97, 168, 0.2) // Darker lavender shadow
               : const Color.fromRGBO(0, 0, 0, 0.04),
         ),
       ],

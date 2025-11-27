@@ -230,26 +230,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
               ),
-              if (_currentTier != Tier.pro)
-                OutlinedButton(
-                  onPressed: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const PaywallScreen(),
-                      ),
-                    );
-                    _loadSettings(); // Reload in case user upgraded
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    side: const BorderSide(color: Colors.white, width: 2),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+              OutlinedButton(
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const PaywallScreen(),
                     ),
+                  );
+                  _loadSettings(); // Reload in case user upgraded
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white, width: 2),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Text('Upgrade'),
                 ),
+                child: Text(_currentTier == Tier.pro ? 'View Plans' : 'Upgrade Plan'),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -381,6 +380,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (result != null) {
       setState(() => _defaultRingtone = result);
       await SettingsService.setDefaultRingtone(result.name);
+    }
+  }
+
+  /// Show dialog to change subscription plan
+  Future<void> _showChangePlanDialog() async {
+    final result = await showDialog<Tier>(
+      context: context,
+      builder: (context) => _ChangePlanDialog(currentTier: _currentTier),
+    );
+
+    if (result != null && result != _currentTier) {
+      if (!mounted) return;
+
+      // Show confirmation dialog
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Switch to ${result.displayName}?'),
+          content: Text(
+            'You are about to switch from ${_currentTier.displayName} (${_currentTier.price}) '
+            'to ${result.displayName} (${result.price}).\n\n'
+            'This change will take effect immediately.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryColor,
+              ),
+              child: const Text('Confirm'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed == true) {
+        // Change the tier
+        await TierService.setTier(result);
+        await _loadSettings();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Switched to ${result.displayName} plan'),
+              backgroundColor: AppTheme.accentGreen,
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -609,6 +661,121 @@ class _UpdateIntervalPickerDialog extends StatelessWidget {
       title: Text(label),
       trailing: isSelected ? const Icon(Icons.check, color: AppTheme.primaryColor) : null,
       onTap: () => Navigator.pop(context, seconds),
+    );
+  }
+}
+
+// Change Plan Dialog
+class _ChangePlanDialog extends StatelessWidget {
+  final Tier currentTier;
+
+  const _ChangePlanDialog({required this.currentTier});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Change Subscription Plan'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: Tier.values.map((tier) {
+            final isSelected = tier == currentTier;
+            final benefits = TierBenefit.getBenefits(tier);
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              elevation: isSelected ? 4 : 1,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: isSelected ? AppTheme.primaryColor : Colors.grey.shade300,
+                  width: isSelected ? 2 : 1,
+                ),
+              ),
+              child: InkWell(
+                onTap: () => Navigator.pop(context, tier),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                tier.icon,
+                                style: const TextStyle(fontSize: 24),
+                              ),
+                              const SizedBox(width: 8),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    tier.displayName,
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: isSelected ? AppTheme.primaryColor : Colors.black,
+                                    ),
+                                  ),
+                                  Text(
+                                    tier.price,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          if (isSelected)
+                            const Icon(
+                              Icons.check_circle,
+                              color: AppTheme.primaryColor,
+                              size: 28,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 8),
+                      ...benefits.map((benefit) => Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.check,
+                                  size: 16,
+                                  color: AppTheme.accentGreen,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    benefit,
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+      ],
     );
   }
 }

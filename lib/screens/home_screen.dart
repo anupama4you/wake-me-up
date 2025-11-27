@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
+import '../models/tier.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
 import '../services/tier_service.dart';
@@ -44,7 +45,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startLocationTrackingIfNeeded();
+    // Get immediate location if there are active alarms
+    if (widget.alarms.any((alarm) => alarm.isActive)) {
+      debugPrint('📍 Active alarms detected on init - getting immediate location');
+      _updateCurrentLocation();
+    }
     _checkAppHealth();
+  }
+
+  @override
+  void didUpdateWidget(HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Check if any alarm's active status changed
+    bool hasActiveStatusChange = false;
+    for (final alarm in widget.alarms) {
+      final oldAlarm = oldWidget.alarms.where((old) => old.id == alarm.id).firstOrNull;
+      if (oldAlarm != null && oldAlarm.isActive != alarm.isActive) {
+        hasActiveStatusChange = true;
+        debugPrint('📍 Alarm ${alarm.id} status changed: ${oldAlarm.isActive} → ${alarm.isActive}');
+        break;
+      }
+    }
+
+    // Check if there are new active alarms (alarm list comparison by ID and status)
+    final oldActiveIds = oldWidget.alarms.where((a) => a.isActive).map((a) => a.id).toSet();
+    final newActiveIds = widget.alarms.where((a) => a.isActive).map((a) => a.id).toSet();
+    final hasNewActiveAlarms = newActiveIds.difference(oldActiveIds).isNotEmpty;
+
+    // If alarms list changed or active status changed, restart location tracking
+    if (widget.alarms.length != oldWidget.alarms.length ||
+        hasActiveStatusChange ||
+        hasNewActiveAlarms) {
+      debugPrint('📍 Alarms changed (count: ${oldWidget.alarms.length} → ${widget.alarms.length}, newActive: $hasNewActiveAlarms) - restarting location tracking');
+      _stopLocationTracking(); // Stop first to clean up
+      _startLocationTrackingIfNeeded(); // Then restart and get immediate location
+      _updateCurrentLocation(); // Get location immediately for progress bar
+    }
   }
 
   /// Check app health on startup
@@ -73,6 +110,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         debugPrint('📱 App resumed - starting smart GPS polling for UI updates');
         _isAppInForeground = true;
         _startLocationTrackingIfNeeded();
+        // Get immediate location if there are active alarms
+        if (widget.alarms.any((alarm) => alarm.isActive)) {
+          debugPrint('📍 Active alarms detected on resume - getting immediate location');
+          _updateCurrentLocation();
+        }
         break;
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
@@ -132,12 +174,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     try {
       // Check if we have any active alarms
       final hasActiveAlarms = widget.alarms.any((alarm) => alarm.isActive);
-      if (!hasActiveAlarms) return;
+      if (!hasActiveAlarms) {
+        debugPrint('⚠️ No active alarms - skipping location update');
+        return;
+      }
 
       // Check location permission
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        debugPrint('⚠️ Location permission denied - cannot update location');
         return;
       }
 
@@ -145,18 +191,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final useHighAccuracy = SettingsService.highAccuracy;
       final accuracy = useHighAccuracy ? LocationAccuracy.high : LocationAccuracy.medium;
 
+      debugPrint('📍 Fetching current position (accuracy: $accuracy)...');
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: accuracy,
       );
+
+      debugPrint('✅ Location received: ${position.latitude}, ${position.longitude}');
 
       if (mounted) {
         setState(() {
           _currentLocation = position;
         });
+        debugPrint('✅ Location state updated - UI should rebuild with progress bar');
+      } else {
+        debugPrint('⚠️ Widget not mounted - cannot update state');
       }
     } catch (e) {
       // Ignore errors silently
-      debugPrint('Location update error: $e');
+      debugPrint('❌ Location update error: $e');
     }
   }
 
@@ -688,12 +740,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   // Wrap card with Dismissible for swipe actions
                   return Dismissible(
                     key: ValueKey(alarm.id),
+                    // Allow swipe actions for all alarms (including active/completed ones)
                     confirmDismiss: (direction) async {
                       if (direction == DismissDirection.endToStart) {
-                        // Swipe left - Delete action
+                        // Swipe left - Delete action (always allowed)
                         return await _confirmDelete(context, alarm);
                       } else if (direction == DismissDirection.startToEnd) {
                         // Swipe right - Edit action
+                        // For ALL active alarms (including completed), show message to toggle off first
+                        if (alarm.isActive) {
+                          final message = alarm.isCompleted
+                              ? 'Please toggle off the completed alarm before editing'
+                              : 'Please toggle off the alarm before editing';
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(message),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                          return false;
+                        }
+                        // Only allow editing of inactive alarms
                         await _editAlarm(context, alarm);
                         return false; // Don't dismiss
                       }

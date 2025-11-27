@@ -3,7 +3,7 @@ import '../models/tier.dart';
 import '../services/tier_service.dart';
 import '../theme/app_theme.dart';
 
-/// Paywall screen showing subscription tier options
+/// Paywall screen showing subscription tier options in tabs
 class PaywallScreen extends StatefulWidget {
   final String? highlightedMessage; // Optional message to highlight why upgrade is needed
   final Tier? suggestedTier; // Optional tier to highlight
@@ -18,22 +18,32 @@ class PaywallScreen extends StatefulWidget {
   State<PaywallScreen> createState() => _PaywallScreenState();
 }
 
-class _PaywallScreenState extends State<PaywallScreen> {
+class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProviderStateMixin {
   Tier _currentTier = Tier.free;
-  Tier? _selectedTier;
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
     _loadCurrentTier();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadCurrentTier() async {
     final tier = await TierService.getCurrentTier();
     setState(() {
       _currentTier = tier;
-      _selectedTier = widget.suggestedTier ?? _getNextTier(tier);
     });
+
+    // Set initial tab based on suggested tier or next tier
+    final initialTier = widget.suggestedTier ?? _getNextTier(tier);
+    _tabController.index = initialTier.index;
   }
 
   Tier _getNextTier(Tier current) {
@@ -47,270 +57,340 @@ class _PaywallScreenState extends State<PaywallScreen> {
     }
   }
 
+  Tier get _selectedTier => Tier.values[_tabController.index];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Upgrade Plan'),
+        title: const Text(
+          'Choose Your Plan',
+          style: TextStyle(color: AppTheme.textOnPrimaryColor),
+        ),
         backgroundColor: AppTheme.primaryColor,
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Highlighted message if provided
-            if (widget.highlightedMessage != null) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                color: Colors.orange.withOpacity(0.1),
-                child: Column(
-                  children: [
-                    const Icon(Icons.info_outline, color: Colors.orange, size: 48),
-                    const SizedBox(height: 12),
-                    Text(
-                      widget.highlightedMessage!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-            ] else ...[
-              const SizedBox(height: 32),
-            ],
-
-            // Title
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                'Choose Your Plan',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                'Unlock longer trips and more alarms',
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 32),
-
-            // Tier cards
-            _buildTierCard(Tier.free),
-            const SizedBox(height: 16),
-            _buildTierCard(Tier.commuter),
-            const SizedBox(height: 16),
-            _buildTierCard(Tier.pro),
-
-            const SizedBox(height: 32),
-
-            // Action buttons
-            if (_selectedTier != null && _selectedTier != Tier.free) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  children: [
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton(
-                        onPressed: () => _mockUpgrade(),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryColor,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: Text(
-                          'Upgrade to ${_selectedTier!.displayName} - ${_selectedTier!.price}',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Payment integration coming soon!',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: () => _mockUpgrade(),
-                      child: const Text('Try it now (mock upgrade for testing)'),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
-            const SizedBox(height: 24),
-
-            // Restore purchases / Terms
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          indicatorWeight: 3,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          labelStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+          tabs: [
+            Tab(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  TextButton(
-                    onPressed: () {
-                      // TODO: Implement restore purchases
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Restore purchases - coming soon')),
-                      );
-                    },
-                    child: const Text('Restore Purchases'),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'By subscribing, you agree to our Terms of Service and Privacy Policy',
-                    style: TextStyle(fontSize: 11, color: Colors.grey),
-                    textAlign: TextAlign.center,
+                  Text(Tier.free.icon),
+                  const SizedBox(width: 4),
+                  const Text('Free'),
+                ],
+              ),
+            ),
+            Tab(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(Tier.commuter.icon),
+                  const SizedBox(width: 4),
+                  const Text('Commuter'),
+                ],
+              ),
+            ),
+            Tab(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(Tier.pro.icon),
+                  const SizedBox(width: 4),
+                  const Text('Pro'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: Column(
+        children: [
+          // Highlighted message if provided
+          if (widget.highlightedMessage != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              color: AppTheme.warningColor.withValues(alpha: 0.1),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, color: AppTheme.warningColor, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      widget.highlightedMessage!,
+                      style: const TextStyle(fontSize: 14),
+                    ),
                   ),
                 ],
               ),
             ),
 
-            const SizedBox(height: 32),
-          ],
-        ),
+          // Tab content
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildTierTab(Tier.free),
+                _buildTierTab(Tier.commuter),
+                _buildTierTab(Tier.pro),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildTierCard(Tier tier) {
+  Widget _buildTierTab(Tier tier) {
     final isCurrentTier = tier == _currentTier;
-    final isSelected = tier == _selectedTier;
     final limits = TierLimits.fromTier(tier);
     final benefits = TierBenefit.getBenefits(tier);
 
-    return GestureDetector(
-      onTap: () {
-        if (tier != Tier.free) {
-          setState(() => _selectedTier = tier);
-        }
-      },
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 24),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? AppTheme.primaryColor.withOpacity(0.1)
-              : Colors.white,
-          border: Border.all(
-            color: isSelected
-                ? AppTheme.primaryColor
-                : isCurrentTier
-                    ? Colors.green
-                    : Colors.grey.withOpacity(0.3),
-            width: isSelected || isCurrentTier ? 2 : 1,
-          ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            if (isSelected)
-              BoxShadow(
-                color: AppTheme.primaryColor.withOpacity(0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          const SizedBox(height: 24),
+
+          // Large tier icon
+          Container(
+            width: 120,
+            height: 120,
+            decoration: BoxDecoration(
+              color: AppTheme.primaryColor.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                tier.icon,
+                style: const TextStyle(fontSize: 64),
               ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header with tier name and current badge
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      tier.icon,
-                      style: const TextStyle(fontSize: 24),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      tier.displayName,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Current tier badge
+          if (isCurrentTier)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.accentGreen,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Text(
+                'CURRENT PLAN',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
                 ),
-                if (isCurrentTier)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.green,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      'CURRENT',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+              ),
+            ),
+
+          if (isCurrentTier) const SizedBox(height: 16),
+
+          // Tier name
+          Text(
+            tier.displayName,
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          // Price
+          Text(
+            tier.price,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: tier == Tier.free ? AppTheme.accentGreen : AppTheme.primaryColor,
+            ),
+          ),
+
+          const SizedBox(height: 4),
+
+          // Description
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              tier.description,
+              style: const TextStyle(fontSize: 16, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // Key limits card
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: AppTheme.cardColor,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 10,
+                ),
               ],
             ),
-            const SizedBox(height: 8),
-
-            // Price
-            Text(
-              tier.price,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: tier == Tier.free ? Colors.green : AppTheme.primaryColor,
-              ),
+            child: Column(
+              children: [
+                _buildLimitRow(Icons.route, 'Trip Distance', limits.formattedTripDistance),
+                const SizedBox(height: 16),
+                _buildLimitRow(Icons.alarm, 'Active Alarms', limits.formattedAlarmLimit),
+              ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              tier.description,
-              style: const TextStyle(fontSize: 14, color: Colors.grey),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Benefits section
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Features',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ...benefits.map((benefit) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.check_circle,
+                            color: AppTheme.accentGreen,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              benefit,
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )),
+              ],
             ),
+          ),
 
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 12),
+          const SizedBox(height: 32),
 
-            // Key limits
-            _buildLimitRow(Icons.route, 'Trip Distance', limits.formattedTripDistance),
-            const SizedBox(height: 8),
-            _buildLimitRow(Icons.alarm, 'Active Alarms', limits.formattedAlarmLimit),
-            const SizedBox(height: 8),
-            _buildLimitRow(Icons.update, 'GPS Updates', '${limits.gpsUpdateIntervalSeconds}s'),
-
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 12),
-
-            // Benefits list
-            ...benefits.map((benefit) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.check_circle, color: Colors.green, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          benefit,
-                          style: const TextStyle(fontSize: 14),
+          // Action button
+          if (tier != Tier.free)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton(
+                      onPressed: isCurrentTier ? null : () => _selectPlan(tier),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryColor,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.grey,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        elevation: 2,
+                      ),
+                      child: Text(
+                        isCurrentTier
+                            ? 'Current Plan'
+                            : 'Select ${tier.displayName} Plan',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                )),
-          ],
-        ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Payment integration coming soon!',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+
+          if (tier == Tier.free && !isCurrentTier)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: () => _selectPlan(tier),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.accentGreen,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 2,
+                  ),
+                  child: const Text(
+                    'Switch to Free Plan',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          const SizedBox(height: 24),
+
+          // Terms and restore
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              children: [
+                TextButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Restore purchases - coming soon')),
+                    );
+                  },
+                  child: const Text('Restore Purchases'),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'By subscribing, you agree to our Terms of Service and Privacy Policy',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+        ],
       ),
     );
   }
@@ -336,9 +416,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
     );
   }
 
-  Future<void> _mockUpgrade() async {
-    if (_selectedTier == null || _selectedTier == Tier.free) return;
-
+  Future<void> _selectPlan(Tier tier) async {
     // Show loading
     showDialog(
       context: context,
@@ -347,7 +425,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
     );
 
     // Mock upgrade (replace with actual payment later)
-    await TierService.mockUpgrade(_selectedTier!);
+    await TierService.setTier(tier);
 
     // Wait a bit to simulate payment processing
     await Future.delayed(const Duration(seconds: 1));
@@ -365,11 +443,11 @@ class _PaywallScreenState extends State<PaywallScreen> {
           children: [
             const Icon(Icons.check_circle, color: Colors.green, size: 32),
             const SizedBox(width: 12),
-            const Text('Upgrade Successful!'),
+            Text('${tier == Tier.free ? 'Plan Changed' : 'Upgrade Successful'}!'),
           ],
         ),
         content: Text(
-          'You are now on the ${_selectedTier!.displayName} plan!\n\n'
+          'You are now on the ${tier.displayName} plan!\n\n'
           'Note: This is a mock upgrade for testing. Real payment integration coming soon.',
         ),
         actions: [

@@ -133,7 +133,9 @@ class AlarmSoundService {
     debugPrint('🎵 Configuring audio session for ALARM playback...');
     await _audioPlayer!.setPlayerMode(PlayerMode.mediaPlayer);
 
-    // Set audio context for alarm - bypasses silent mode on Android
+    // Set audio context for alarm - bypasses silent mode and overrides other audio
+    // CRITICAL: Using gainTransient (not gainTransientMayDuck) forces other audio to STOP/PAUSE
+    // This ensures alarm overrides bluetooth music, podcasts, etc.
     final audioContext = AudioContext(
       iOS: AudioContextIOS(
         category: AVAudioSessionCategory.playback,
@@ -144,7 +146,7 @@ class AlarmSoundService {
         stayAwake: true,
         contentType: AndroidContentType.sonification,
         usageType: AndroidUsageType.alarm,
-        audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+        audioFocus: AndroidAudioFocus.gainTransient, // GAIN = Override/Stop other audio
       ),
     );
     await _audioPlayer!.setAudioContext(audioContext);
