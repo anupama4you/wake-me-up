@@ -5,10 +5,12 @@ import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
+import '../services/tier_service.dart';
 import '../utils/eta_calculator.dart';
 import '../utils/app_health_monitor.dart';
 import 'map_screen.dart';
 import 'alarm_detail_map_screen.dart';
+import 'paywall_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final List<Alarm> alarms;
@@ -503,26 +505,80 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   /// Show maximum limit dialog
-  Future<void> _showMaxLimitDialog(BuildContext context) async {
+  Future<void> _showTierLimitDialog(BuildContext context, String message) async {
+    final currentTier = await TierService.getCurrentTier();
+    final limits = await TierService.getTierLimits();
+
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            const Icon(Icons.warning, color: AppTheme.errorColor, size: 28),
+            const Icon(Icons.lock, color: AppTheme.primaryColor, size: 28),
             const SizedBox(width: AppTheme.paddingMedium),
-            const Text('Maximum Limit Reached'),
+            const Text('Upgrade Required'),
           ],
         ),
-        content: Text(
-          'You can have a maximum of 10 active alarms at once.\n\n'
-          'Please disable some alarms before enabling new ones.',
-          style: AppTheme.bodyMedium,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message,
+              style: AppTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppTheme.primaryColor.withOpacity(0.3),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Current Plan: ${currentTier.displayName}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Active Alarms: ${limits.formattedAlarmLimit}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         actions: [
-          ElevatedButton(
+          TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: const Text('Maybe Later'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PaywallScreen(
+                    highlightedMessage: message,
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Upgrade'),
           ),
         ],
       ),
@@ -672,9 +728,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             .where((a) => a.isActive && a.id != alarm.id)
                             .length;
 
-                        // Check maximum limit first (10 active alarms)
-                        if (activeCount >= 10) {
-                          await _showMaxLimitDialog(context);
+                        // Check tier-based alarm limit
+                        final tierError = await TierService.canActivateAlarm(activeCount);
+                        if (tierError != null) {
+                          // Show upgrade prompt
+                          await _showTierLimitDialog(context, tierError);
                           return;
                         }
 

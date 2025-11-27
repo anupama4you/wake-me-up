@@ -5,6 +5,9 @@ import '../services/settings_service.dart';
 import '../services/geofence_service.dart';
 import '../services/alarm_storage_service.dart';
 import '../services/alarm_sound_service.dart';
+import '../services/tier_service.dart';
+import '../models/tier.dart';
+import 'paywall_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onSettingsApplied;
@@ -23,6 +26,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _highAccuracy = true;
   int _updateInterval = 10;
 
+  Tier _currentTier = Tier.free;
+  TierLimits? _tierLimits;
+
   @override
   void initState() {
     super.initState();
@@ -30,6 +36,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadSettings() async {
+    final tier = await TierService.getCurrentTier();
+    final limits = await TierService.getTierLimits();
+
     setState(() {
       _defaultRadius = SettingsService.defaultRadius;
       _defaultSoundLevel = SettingsService.defaultSoundLevel;
@@ -37,6 +46,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _vibration = SettingsService.vibrationEnabled;
       _highAccuracy = SettingsService.highAccuracy;
       _updateInterval = SettingsService.updateInterval;
+      _currentTier = tier;
+      _tierLimits = limits;
     });
   }
 
@@ -52,6 +63,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Subscription Section
+            _buildSubscriptionSection(),
+            const SizedBox(height: 24),
+
             _buildSectionTitle('GENERAL'),
             _buildSettingsCard([
               _buildSettingRow(
@@ -152,6 +167,137 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSubscriptionSection() {
+    if (_tierLimits == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.primaryColor,
+            AppTheme.primaryColor.withOpacity(0.8),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primaryColor.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    _currentTier.icon,
+                    style: const TextStyle(fontSize: 32),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${_currentTier.displayName} Plan',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        _currentTier.price,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              if (_currentTier != Tier.pro)
+                OutlinedButton(
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const PaywallScreen(),
+                      ),
+                    );
+                    _loadSettings(); // Reload in case user upgraded
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white, width: 2),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text('Upgrade'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(color: Colors.white24, thickness: 1),
+          const SizedBox(height: 12),
+          _buildLimitRow(
+            Icons.route,
+            'Trip Distance',
+            _tierLimits!.formattedTripDistance,
+          ),
+          const SizedBox(height: 8),
+          _buildLimitRow(
+            Icons.alarm,
+            'Active Alarms',
+            _tierLimits!.formattedAlarmLimit,
+          ),
+          const SizedBox(height: 8),
+          _buildLimitRow(
+            Icons.update,
+            'GPS Updates',
+            '${_tierLimits!.gpsUpdateIntervalSeconds}s',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLimitRow(IconData icon, String label, String value) {
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: Colors.white70),
+        const SizedBox(width: 8),
+        Text(
+          '$label: ',
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 14,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ],
     );
   }
 
