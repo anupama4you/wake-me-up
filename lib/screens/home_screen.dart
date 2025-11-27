@@ -105,9 +105,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // Get initial location
     _updateCurrentLocation();
 
-    // Use longer update interval to save battery (30 seconds when visible)
-    const updateInterval = 30; // Was: SettingsService.updateInterval (5-10s)
-    debugPrint('📍 Smart GPS polling enabled: ${updateInterval}s interval (UI only)');
+    // Use user's configured update interval (default: 5s, customizable in Settings)
+    final updateInterval = SettingsService.updateInterval;
+    debugPrint('📍 GPS polling enabled: ${updateInterval}s interval (UI updates only)');
     debugPrint('🔋 Battery-efficient mode: Polling only when app is visible');
 
     // Set up periodic updates ONLY when app is visible

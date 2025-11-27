@@ -266,12 +266,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'Active Alarms',
             _tierLimits!.formattedAlarmLimit,
           ),
-          const SizedBox(height: 8),
-          _buildLimitRow(
-            Icons.update,
-            'GPS Updates',
-            '${_tierLimits!.gpsUpdateIntervalSeconds}s',
-          ),
         ],
       ),
     );

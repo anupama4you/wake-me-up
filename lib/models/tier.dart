@@ -56,13 +56,11 @@ extension TierExtension on Tier {
 class TierLimits {
   final double maxTripDistanceKm; // Max distance from current location (in km)
   final int maxActiveAlarms; // Max number of active alarms (0 = unlimited)
-  final int gpsUpdateIntervalSeconds; // GPS polling frequency
   final Set<String> features; // Enabled features
 
   const TierLimits({
     required this.maxTripDistanceKm,
     required this.maxActiveAlarms,
-    required this.gpsUpdateIntervalSeconds,
     required this.features,
   });
 
@@ -73,7 +71,6 @@ class TierLimits {
         return const TierLimits(
           maxTripDistanceKm: 20, // 20km max trip distance
           maxActiveAlarms: 1, // 1 active alarm
-          gpsUpdateIntervalSeconds: 30, // Update every 30 seconds
           features: {
             'basic_ringtones',
             'standard_accuracy',
@@ -84,12 +81,10 @@ class TierLimits {
         return const TierLimits(
           maxTripDistanceKm: 50, // 50km max trip distance
           maxActiveAlarms: 5, // 5 active alarms
-          gpsUpdateIntervalSeconds: 15, // Update every 15 seconds
           features: {
             'basic_ringtones',
             'custom_ringtones',
             'high_accuracy',
-            'higher_update_frequency',
           },
         );
 
@@ -97,12 +92,10 @@ class TierLimits {
         return const TierLimits(
           maxTripDistanceKm: double.infinity, // Unlimited trip distance
           maxActiveAlarms: 0, // Unlimited alarms (0 = unlimited)
-          gpsUpdateIntervalSeconds: 15, // Update every 15 seconds
           features: {
             'basic_ringtones',
             'custom_ringtones',
             'high_accuracy',
-            'higher_update_frequency',
             'multi_leg_routes',
             'cloud_backup',
             'cloud_sync',
@@ -152,7 +145,6 @@ class TierBenefit {
         'Up to 20km trip distance',
         '1 active alarm',
         'Basic ringtones',
-        'Standard location updates (30s)',
       ],
     ),
     TierBenefit(
@@ -161,7 +153,6 @@ class TierBenefit {
         'Up to 50km trip distance',
         '5 active alarms',
         'Custom ringtones',
-        'Higher location update frequency (15s)',
         'High accuracy GPS',
       ],
     ),

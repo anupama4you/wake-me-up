@@ -71,12 +71,6 @@ class TierService {
     return Tier.pro;
   }
 
-  /// Get GPS update interval for current tier
-  static Future<int> getGpsUpdateInterval() async {
-    final limits = await getTierLimits();
-    return limits.gpsUpdateIntervalSeconds;
-  }
-
   /// Check if a feature is available for current tier
   static Future<bool> hasFeature(String feature) async {
     final limits = await getTierLimits();
