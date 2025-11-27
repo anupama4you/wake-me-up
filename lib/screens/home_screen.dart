@@ -6,6 +6,7 @@ import '../models/alarm.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
 import '../utils/eta_calculator.dart';
+import '../utils/app_health_monitor.dart';
 import 'map_screen.dart';
 import 'alarm_detail_map_screen.dart';
 
@@ -33,12 +34,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Position? _currentLocation;
   Timer? _locationUpdateTimer;
   bool _isAppInForeground = true;
+  List<HealthIssue> _healthIssues = [];
+  bool _healthCheckDone = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startLocationTrackingIfNeeded();
+    _checkAppHealth();
+  }
+
+  /// Check app health on startup
+  Future<void> _checkAppHealth() async {
+    final issues = await AppHealthMonitor.getHealthIssues();
+    if (mounted) {
+      setState(() {
+        _healthIssues = issues;
+        _healthCheckDone = true;
+      });
+    }
   }
 
   @override
@@ -582,11 +597,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         color: AppTheme.backgroundColor,
         child: widget.alarms.isEmpty
             ? _EmptyState()
-            : ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: widget.alarms.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
+            : Column(
+                children: [
+                  // Health check banner (shows if there are critical issues)
+                  if (_healthCheckDone && _healthIssues.isNotEmpty)
+                    _buildHealthBanner(),
+                  // Alarm list
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: widget.alarms.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
                   final alarm = widget.alarms[index];
 
                   // Calculate distance and ETA if alarm is active and we have location
@@ -679,7 +701,79 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                   ); // Close Dismissible widget
                 },
+                      ),
+                    ),
+                  ],
+                ),
+      ),
+    );
+  }
+
+  /// Build health check banner showing critical issues
+  Widget _buildHealthBanner() {
+    final criticalIssues = _healthIssues
+        .where((i) => i.severity == HealthIssueSeverity.critical)
+        .toList();
+
+    if (criticalIssues.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.orange.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning_amber, color: Colors.orange, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '${criticalIssues.length} Critical Issue${criticalIssues.length > 1 ? 's' : ''} Detected',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                  ),
+                ),
               ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            criticalIssues.first.title,
+            style: const TextStyle(fontSize: 14),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () {
+                  AppHealthMonitor.showHealthCheckDialog(context);
+                },
+                child: const Text('View Details'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: criticalIssues.first.fixAction,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(criticalIssues.first.fixButtonLabel ?? 'Fix'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
