@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
+import '../utils/eta_calculator.dart';
 import 'map_screen.dart';
 import 'alarm_detail_map_screen.dart';
 
@@ -28,35 +29,85 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Position? _currentLocation;
   Timer? _locationUpdateTimer;
+  bool _isAppInForeground = true;
 
   @override
   void initState() {
     super.initState();
-    _startLocationTracking();
+    WidgetsBinding.instance.addObserver(this);
+    _startLocationTrackingIfNeeded();
   }
 
   @override
   void dispose() {
-    _locationUpdateTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopLocationTracking();
     super.dispose();
   }
 
-  /// Start tracking location for progress bars
-  void _startLocationTracking() {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // App came to foreground - start smart polling
+        debugPrint('📱 App resumed - starting smart GPS polling for UI updates');
+        _isAppInForeground = true;
+        _startLocationTrackingIfNeeded();
+        break;
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        // App went to background - STOP polling (geofencing continues!)
+        debugPrint('📱 App backgrounded - stopping GPS polling');
+        debugPrint('✅ Geofencing still active - alarms will work!');
+        _isAppInForeground = false;
+        _stopLocationTracking();
+        break;
+    }
+  }
+
+  /// Start tracking location ONLY if app is visible and has active alarms
+  void _startLocationTrackingIfNeeded() {
+    // Don't start if app is in background
+    if (!_isAppInForeground) {
+      debugPrint('🔋 App in background - GPS polling disabled (geofencing handles alarms)');
+      return;
+    }
+
+    // Don't start if no active alarms
+    final hasActiveAlarms = widget.alarms.any((alarm) => alarm.isActive);
+    if (!hasActiveAlarms) {
+      debugPrint('🔋 No active alarms - GPS polling disabled');
+      return;
+    }
+
     // Get initial location
     _updateCurrentLocation();
 
-    // Use update interval from settings
-    final updateInterval = SettingsService.updateInterval;
-    debugPrint('📍 Home screen location tracking: ${updateInterval}s interval');
+    // Use longer update interval to save battery (30 seconds when visible)
+    const updateInterval = 30; // Was: SettingsService.updateInterval (5-10s)
+    debugPrint('📍 Smart GPS polling enabled: ${updateInterval}s interval (UI only)');
+    debugPrint('🔋 Battery-efficient mode: Polling only when app is visible');
 
-    // Set up periodic updates based on settings
+    // Set up periodic updates ONLY when app is visible
+    _locationUpdateTimer?.cancel(); // Cancel existing timer if any
     _locationUpdateTimer = Timer.periodic(Duration(seconds: updateInterval), (_) {
-      _updateCurrentLocation();
+      if (_isAppInForeground) {
+        _updateCurrentLocation();
+      }
     });
+  }
+
+  /// Stop location tracking to save battery
+  void _stopLocationTracking() {
+    _locationUpdateTimer?.cancel();
+    _locationUpdateTimer = null;
+    debugPrint('🔋 GPS polling stopped - saving battery');
+    debugPrint('✅ Geofencing continues monitoring in background');
   }
 
   /// Update current location
@@ -538,17 +589,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 itemBuilder: (context, index) {
                   final alarm = widget.alarms[index];
 
-                  // Calculate distance and progress if alarm is active and we have location
+                  // Calculate distance and ETA if alarm is active and we have location
                   double? distance;
-                  int? progress;
+                  Duration? eta;
                   if (alarm.isActive && _currentLocation != null) {
-                    distance = _calculateDistance(
+                    distance = Geolocator.distanceBetween(
                       _currentLocation!.latitude,
                       _currentLocation!.longitude,
                       alarm.latitude,
                       alarm.longitude,
                     );
-                    progress = _calculateProgress(distance, alarm.radius);
+
+                    // Calculate ETA using new calculator
+                    eta = ETACalculator.calculateETA(
+                      currentDistance: distance,
+                      currentPosition: _currentLocation!,
+                    );
                   }
 
                   // Wrap card with Dismissible for swipe actions
@@ -570,7 +626,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: _AlarmCard(
                       alarm: alarm,
                       currentDistance: distance,
-                      progress: progress,
+                      eta: eta,
                       onTap: () {
                         if (alarm.isActive) {
                           // Active alarm: Navigate to live map detail view
@@ -790,7 +846,7 @@ class _AlarmCard extends StatelessWidget {
   final VoidCallback onTap;
   final ValueChanged<bool> onToggle;
   final double? currentDistance;
-  final int? progress;
+  final Duration? eta;
 
   const _AlarmCard({
     Key? key,
@@ -798,7 +854,7 @@ class _AlarmCard extends StatelessWidget {
     required this.onTap,
     required this.onToggle,
     this.currentDistance,
-    this.progress,
+    this.eta,
   }) : super(key: key);
 
   /// Format distance for display
@@ -965,13 +1021,12 @@ class _AlarmCard extends StatelessWidget {
                     if (isCompleted) ...[
                       const SizedBox(height: AppTheme.paddingSmall),
                       _CompletedProgressIndicator(),
-                    ] else if (isActive &&
-                        currentDistance != null &&
-                        progress != null) ...[
+                    ] else if (isActive && currentDistance != null) ...[
                       const SizedBox(height: AppTheme.paddingSmall),
                       _ProgressIndicator(
                         distance: currentDistance!,
-                        progress: progress!,
+                        eta: eta,
+                        targetRadius: alarm.radius,
                         isActive: isActive,
                       ),
                     ],
@@ -1206,12 +1261,14 @@ class _ModernActionButton extends StatelessWidget {
 
 class _ProgressIndicator extends StatelessWidget {
   final double distance;
-  final int progress;
+  final Duration? eta;
+  final double targetRadius;
   final bool isActive;
 
   const _ProgressIndicator({
     required this.distance,
-    required this.progress,
+    required this.targetRadius,
+    this.eta,
     required this.isActive,
   });
 
@@ -1226,16 +1283,22 @@ class _ProgressIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progressColor = progress >= 75
-        ? AppTheme.successColor
-        : progress >= 40
-        ? AppTheme.accentGreen
-        : AppTheme.primaryColor;
+    // Calculate progress for the progress bar
+    final progress = ETACalculator.calculateProgress(
+      currentDistance: distance,
+      targetRadius: targetRadius,
+    );
+
+    // Get color based on ETA or progress
+    final progressColor = ETACalculator.getProgressColor(
+      progress: progress,
+      eta: eta,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Distance text and progress percentage
+        // Distance text and ETA (instead of percentage)
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -1262,8 +1325,9 @@ class _ProgressIndicator extends StatelessWidget {
                 ),
               ],
             ),
+            // Show ETA instead of percentage
             Text(
-              '$progress%',
+              ETACalculator.formatETA(eta, shortFormat: true),
               style: AppTheme.labelSmall.copyWith(
                 color: progressColor,
                 fontWeight: FontWeight.bold,
@@ -1276,7 +1340,7 @@ class _ProgressIndicator extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
           child: LinearProgressIndicator(
-            value: progress / 100,
+            value: progress,
             minHeight: 6,
             backgroundColor: isActive
                 ? AppTheme.activeAlarmBorder.withValues(alpha: 0.2)
