@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 import '../models/tier.dart';
 import '../services/tier_service.dart';
+import '../services/subscription_service.dart';
+import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
+import 'auth_screen.dart';
 
 /// Paywall screen showing subscription tier options in tabs
 class PaywallScreen extends StatefulWidget {
@@ -21,12 +25,17 @@ class PaywallScreen extends StatefulWidget {
 class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProviderStateMixin {
   Tier _currentTier = Tier.free;
   late TabController _tabController;
+  final _subscriptionService = SubscriptionService();
+  final _authService = AuthService();
+  Offerings? _offerings;
+  bool _isLoadingOfferings = true;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadCurrentTier();
+    _loadOfferings();
   }
 
   @override
@@ -44,6 +53,21 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
     // Set initial tab based on suggested tier or next tier
     final initialTier = widget.suggestedTier ?? _getNextTier(tier);
     _tabController.index = initialTier.index;
+  }
+
+  Future<void> _loadOfferings() async {
+    try {
+      final offerings = await _subscriptionService.getOfferings();
+      setState(() {
+        _offerings = offerings;
+        _isLoadingOfferings = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingOfferings = false;
+      });
+      debugPrint('Failed to load offerings: $e');
+    }
   }
 
   Tier _getNextTier(Tier current) {
@@ -417,6 +441,35 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
   }
 
   Future<void> _selectPlan(Tier tier) async {
+    // Free tier - just downgrade
+    if (tier == Tier.free) {
+      _showMockDowngradeMessage();
+      return;
+    }
+
+    // Check if user is authenticated
+    if (!_authService.isSignedIn) {
+      final shouldSignIn = await _showAuthRequiredDialog();
+      if (shouldSignIn != true) return;
+
+      // Navigate to auth screen
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const AuthScreen()),
+      );
+
+      // Check again if user signed in
+      if (!_authService.isSignedIn) return;
+    }
+
+    // Get the package for this tier
+    final package = _getPackageForTier(tier);
+    if (package == null) {
+      _showError('Unable to load subscription options. Please try again.');
+      return;
+    }
+
     // Show loading
     showDialog(
       context: context,
@@ -424,18 +477,85 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
       builder: (context) => const Center(child: CircularProgressIndicator()),
     );
 
-    // Mock upgrade (replace with actual payment later)
-    await TierService.setTier(tier);
+    try {
+      // Purchase the package
+      final success = await _subscriptionService.purchasePackage(package);
 
-    // Wait a bit to simulate payment processing
-    await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return;
 
-    if (!mounted) return;
+      // Close loading
+      Navigator.pop(context);
 
-    // Close loading
-    Navigator.pop(context);
+      if (success) {
+        // Refresh current tier
+        await _loadCurrentTier();
 
-    // Show success
+        // Show success dialog
+        _showSuccessDialog(tier);
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      // Close loading
+      Navigator.pop(context);
+
+      // Show error
+      _showError(e.toString());
+    }
+  }
+
+  Package? _getPackageForTier(Tier tier) {
+    if (_offerings == null || _offerings!.current == null) {
+      return null;
+    }
+
+    final current = _offerings!.current!;
+    final productId = _subscriptionService.getProductIdForTier(tier);
+
+    // Try to find package by product ID
+    for (final package in current.availablePackages) {
+      if (package.storeProduct.identifier == productId) {
+        return package;
+      }
+    }
+
+    return null;
+  }
+
+  Future<bool?> _showAuthRequiredDialog() {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.lock, color: Colors.orange),
+            SizedBox(width: 12),
+            Text('Sign In Required'),
+          ],
+        ),
+        content: const Text(
+          'You need to sign in to purchase a subscription. '
+          'This allows you to restore your subscription on other devices.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Sign In'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSuccessDialog(Tier tier) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -443,20 +563,64 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
           children: [
             const Icon(Icons.check_circle, color: Colors.green, size: 32),
             const SizedBox(width: 12),
-            Text('${tier == Tier.free ? 'Plan Changed' : 'Upgrade Successful'}!'),
+            Text('Welcome to ${tier.displayName}!'),
           ],
         ),
         content: Text(
-          'You are now on the ${tier.displayName} plan!\n\n'
-          'Note: This is a mock upgrade for testing. Real payment integration coming soon.',
+          'Your subscription is now active. Enjoy all the premium features!',
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
             onPressed: () {
               Navigator.pop(context); // Close dialog
               Navigator.pop(context); // Close paywall
             },
-            child: const Text('Great!'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Get Started'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showMockDowngradeMessage() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Downgrade to Free'),
+        content: const Text(
+          'To cancel your subscription, please use the subscription management '
+          'option in Settings.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showError(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.error, color: Colors.red),
+            SizedBox(width: 12),
+            Text('Purchase Failed'),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
           ),
         ],
       ),

@@ -6,8 +6,11 @@ import '../services/geofence_service.dart';
 import '../services/alarm_storage_service.dart';
 import '../services/alarm_sound_service.dart';
 import '../services/tier_service.dart';
+import '../services/subscription_service.dart';
+import '../services/auth_service.dart';
 import '../models/tier.dart';
 import 'paywall_screen.dart';
+import 'auth_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onSettingsApplied;
@@ -249,6 +252,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 child: Text(_currentTier == Tier.pro ? 'View Plans' : 'Upgrade Plan'),
               ),
+              if (_currentTier != Tier.free) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: _restorePurchases,
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('Restore'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: _manageSubscription,
+                        icon: const Icon(Icons.manage_accounts, size: 16),
+                        label: const Text('Manage'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white70,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 16),
@@ -537,6 +568,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
       }
+    }
+  }
+
+  /// Restore previous purchases
+  Future<void> _restorePurchases() async {
+    // Show loading
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    try {
+      final subscriptionService = SubscriptionService();
+      await subscriptionService.restorePurchases();
+
+      if (!mounted) return;
+
+      // Close loading
+      Navigator.pop(context);
+
+      // Reload settings to show updated tier
+      await _loadSettings();
+
+      // Show success message
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Purchases restored successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      // Close loading
+      Navigator.pop(context);
+
+      // Show error
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to restore purchases: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// Open subscription management page
+  Future<void> _manageSubscription() async {
+    try {
+      final subscriptionService = SubscriptionService();
+      final managementUrl = await subscriptionService.getManagementURL();
+
+      if (managementUrl != null) {
+        // Show info dialog with instructions
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Manage Subscription'),
+            content: const Text(
+              'To manage your subscription (cancel, change plan, etc.), '
+              'go to your device\'s subscription settings:\n\n'
+              '• iOS: Settings → [Your Name] → Subscriptions\n'
+              '• Android: Play Store → Menu → Subscriptions',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to access subscription management'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 }

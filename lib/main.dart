@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'screens/main_screen.dart';
 import 'theme/app_theme.dart';
 import 'services/settings_service.dart';
+import 'services/subscription_service.dart';
+import 'services/auth_service.dart';
 
 // Global notification plugin instance
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -35,6 +38,33 @@ Future<void> main() async {
     debugPrint('✅ Settings service initialized');
   } catch (e) {
     debugPrint('⚠️ Error initializing settings: $e');
+  }
+
+  // Initialize Firebase
+  try {
+    await Firebase.initializeApp();
+    debugPrint('✅ Firebase initialized');
+  } catch (e) {
+    debugPrint('⚠️ Error initializing Firebase: $e');
+  }
+
+  // Initialize RevenueCat
+  try {
+    final revenueCatApiKey = dotenv.env['REVENUECAT_API_KEY'];
+    if (revenueCatApiKey != null && revenueCatApiKey.isNotEmpty) {
+      final authService = AuthService();
+      final subscriptionService = SubscriptionService();
+
+      await subscriptionService.initialize(
+        apiKey: revenueCatApiKey,
+        userId: authService.userId,
+      );
+      debugPrint('✅ RevenueCat initialized');
+    } else {
+      debugPrint('⚠️ RevenueCat API key not found in environment variables');
+    }
+  } catch (e) {
+    debugPrint('⚠️ Error initializing RevenueCat: $e');
   }
 
   // Initialize notifications BEFORE running app

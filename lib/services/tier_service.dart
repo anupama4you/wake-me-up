@@ -1,24 +1,50 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/tier.dart';
+import 'subscription_service.dart';
 
 /// Service to manage user subscription tier and enforce limits
 class TierService {
   static const String _tierKey = 'user_tier';
+  static final _subscriptionService = SubscriptionService();
 
-  /// Get current user tier (default: free)
+  /// Get current user tier from RevenueCat (with fallback to cached value)
   static Future<Tier> getCurrentTier() async {
+    try {
+      // Try to get tier from RevenueCat (source of truth)
+      final tier = await _subscriptionService.refreshSubscriptionStatus();
+      debugPrint('🎫 Current tier from RevenueCat: ${tier.name}');
+
+      // Cache it locally for offline access
+      await _cacheTier(tier);
+      return tier;
+    } catch (e) {
+      // Fallback to cached tier if RevenueCat is unavailable
+      debugPrint('⚠️ Failed to get tier from RevenueCat, using cached value: $e');
+      return await _getCachedTier();
+    }
+  }
+
+  /// Get cached tier (for offline access)
+  static Future<Tier> _getCachedTier() async {
     final prefs = await SharedPreferences.getInstance();
     final tierIndex = prefs.getInt(_tierKey) ?? 0; // 0 = free
     final tier = Tier.values[tierIndex];
-    debugPrint('🎫 Current tier: ${tier.name} (index: $tierIndex)');
+    debugPrint('🎫 Cached tier: ${tier.name} (index: $tierIndex)');
     return tier;
   }
 
-  /// Set user tier (for testing/mocking upgrade)
-  static Future<void> setTier(Tier tier) async {
+  /// Cache tier locally
+  static Future<void> _cacheTier(Tier tier) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_tierKey, tier.index);
+  }
+
+  /// Set user tier (DEPRECATED - use SubscriptionService.purchasePackage instead)
+  /// Kept for backwards compatibility and testing
+  @Deprecated('Use SubscriptionService.purchasePackage for real purchases')
+  static Future<void> setTier(Tier tier) async {
+    await _cacheTier(tier);
   }
 
   /// Get limits for current tier
