@@ -3,10 +3,15 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
+import '../models/tier.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
+import '../services/tier_service.dart';
+import '../utils/eta_calculator.dart';
+import '../utils/app_health_monitor.dart';
 import 'map_screen.dart';
 import 'alarm_detail_map_screen.dart';
+import 'paywall_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final List<Alarm> alarms;
@@ -28,35 +33,140 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Position? _currentLocation;
   Timer? _locationUpdateTimer;
+  bool _isAppInForeground = true;
+  List<HealthIssue> _healthIssues = [];
+  bool _healthCheckDone = false;
 
   @override
   void initState() {
     super.initState();
-    _startLocationTracking();
+    WidgetsBinding.instance.addObserver(this);
+    _startLocationTrackingIfNeeded();
+    // Get immediate location if there are active alarms
+    if (widget.alarms.any((alarm) => alarm.isActive)) {
+      debugPrint('📍 Active alarms detected on init - getting immediate location');
+      _updateCurrentLocation();
+    }
+    _checkAppHealth();
+  }
+
+  @override
+  void didUpdateWidget(HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Check if any alarm's active status changed
+    bool hasActiveStatusChange = false;
+    for (final alarm in widget.alarms) {
+      final oldAlarm = oldWidget.alarms.where((old) => old.id == alarm.id).firstOrNull;
+      if (oldAlarm != null && oldAlarm.isActive != alarm.isActive) {
+        hasActiveStatusChange = true;
+        debugPrint('📍 Alarm ${alarm.id} status changed: ${oldAlarm.isActive} → ${alarm.isActive}');
+        break;
+      }
+    }
+
+    // Check if there are new active alarms (alarm list comparison by ID and status)
+    final oldActiveIds = oldWidget.alarms.where((a) => a.isActive).map((a) => a.id).toSet();
+    final newActiveIds = widget.alarms.where((a) => a.isActive).map((a) => a.id).toSet();
+    final hasNewActiveAlarms = newActiveIds.difference(oldActiveIds).isNotEmpty;
+
+    // If alarms list changed or active status changed, restart location tracking
+    if (widget.alarms.length != oldWidget.alarms.length ||
+        hasActiveStatusChange ||
+        hasNewActiveAlarms) {
+      debugPrint('📍 Alarms changed (count: ${oldWidget.alarms.length} → ${widget.alarms.length}, newActive: $hasNewActiveAlarms) - restarting location tracking');
+      _stopLocationTracking(); // Stop first to clean up
+      _startLocationTrackingIfNeeded(); // Then restart and get immediate location
+      _updateCurrentLocation(); // Get location immediately for progress bar
+    }
+  }
+
+  /// Check app health on startup
+  Future<void> _checkAppHealth() async {
+    final issues = await AppHealthMonitor.getHealthIssues();
+    if (mounted) {
+      setState(() {
+        _healthIssues = issues;
+        _healthCheckDone = true;
+      });
+    }
   }
 
   @override
   void dispose() {
-    _locationUpdateTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopLocationTracking();
     super.dispose();
   }
 
-  /// Start tracking location for progress bars
-  void _startLocationTracking() {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // App came to foreground - start smart polling
+        debugPrint('📱 App resumed - starting smart GPS polling for UI updates');
+        _isAppInForeground = true;
+        _startLocationTrackingIfNeeded();
+        // Get immediate location if there are active alarms
+        if (widget.alarms.any((alarm) => alarm.isActive)) {
+          debugPrint('📍 Active alarms detected on resume - getting immediate location');
+          _updateCurrentLocation();
+        }
+        break;
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        // App went to background - STOP polling (geofencing continues!)
+        debugPrint('📱 App backgrounded - stopping GPS polling');
+        debugPrint('✅ Geofencing still active - alarms will work!');
+        _isAppInForeground = false;
+        _stopLocationTracking();
+        break;
+    }
+  }
+
+  /// Start tracking location ONLY if app is visible and has active alarms
+  void _startLocationTrackingIfNeeded() {
+    // Don't start if app is in background
+    if (!_isAppInForeground) {
+      debugPrint('🔋 App in background - GPS polling disabled (geofencing handles alarms)');
+      return;
+    }
+
+    // Don't start if no active alarms
+    final hasActiveAlarms = widget.alarms.any((alarm) => alarm.isActive);
+    if (!hasActiveAlarms) {
+      debugPrint('🔋 No active alarms - GPS polling disabled');
+      return;
+    }
+
     // Get initial location
     _updateCurrentLocation();
 
-    // Use update interval from settings
+    // Use user's configured update interval (default: 5s, customizable in Settings)
     final updateInterval = SettingsService.updateInterval;
-    debugPrint('📍 Home screen location tracking: ${updateInterval}s interval');
+    debugPrint('📍 GPS polling enabled: ${updateInterval}s interval (UI updates only)');
+    debugPrint('🔋 Battery-efficient mode: Polling only when app is visible');
 
-    // Set up periodic updates based on settings
+    // Set up periodic updates ONLY when app is visible
+    _locationUpdateTimer?.cancel(); // Cancel existing timer if any
     _locationUpdateTimer = Timer.periodic(Duration(seconds: updateInterval), (_) {
-      _updateCurrentLocation();
+      if (_isAppInForeground) {
+        _updateCurrentLocation();
+      }
     });
+  }
+
+  /// Stop location tracking to save battery
+  void _stopLocationTracking() {
+    _locationUpdateTimer?.cancel();
+    _locationUpdateTimer = null;
+    debugPrint('🔋 GPS polling stopped - saving battery');
+    debugPrint('✅ Geofencing continues monitoring in background');
   }
 
   /// Update current location
@@ -64,12 +174,16 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       // Check if we have any active alarms
       final hasActiveAlarms = widget.alarms.any((alarm) => alarm.isActive);
-      if (!hasActiveAlarms) return;
+      if (!hasActiveAlarms) {
+        debugPrint('⚠️ No active alarms - skipping location update');
+        return;
+      }
 
       // Check location permission
       final permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        debugPrint('⚠️ Location permission denied - cannot update location');
         return;
       }
 
@@ -77,18 +191,24 @@ class _HomeScreenState extends State<HomeScreen> {
       final useHighAccuracy = SettingsService.highAccuracy;
       final accuracy = useHighAccuracy ? LocationAccuracy.high : LocationAccuracy.medium;
 
+      debugPrint('📍 Fetching current position (accuracy: $accuracy)...');
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: accuracy,
       );
+
+      debugPrint('✅ Location received: ${position.latitude}, ${position.longitude}');
 
       if (mounted) {
         setState(() {
           _currentLocation = position;
         });
+        debugPrint('✅ Location state updated - UI should rebuild with progress bar');
+      } else {
+        debugPrint('⚠️ Widget not mounted - cannot update state');
       }
     } catch (e) {
       // Ignore errors silently
-      debugPrint('Location update error: $e');
+      debugPrint('❌ Location update error: $e');
     }
   }
 
@@ -437,26 +557,80 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Show maximum limit dialog
-  Future<void> _showMaxLimitDialog(BuildContext context) async {
+  Future<void> _showTierLimitDialog(BuildContext context, String message) async {
+    final currentTier = await TierService.getCurrentTier();
+    final limits = await TierService.getTierLimits();
+
     await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            const Icon(Icons.warning, color: AppTheme.errorColor, size: 28),
+            const Icon(Icons.lock, color: AppTheme.primaryColor, size: 28),
             const SizedBox(width: AppTheme.paddingMedium),
-            const Text('Maximum Limit Reached'),
+            const Text('Upgrade Required'),
           ],
         ),
-        content: Text(
-          'You can have a maximum of 10 active alarms at once.\n\n'
-          'Please disable some alarms before enabling new ones.',
-          style: AppTheme.bodyMedium,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message,
+              style: AppTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppTheme.primaryColor.withOpacity(0.3),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Current Plan: ${currentTier.displayName}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Active Alarms: ${limits.formattedAlarmLimit}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         actions: [
-          ElevatedButton(
+          TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: const Text('Maybe Later'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PaywallScreen(
+                    highlightedMessage: message,
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Upgrade'),
           ),
         ],
       ),
@@ -531,35 +705,62 @@ class _HomeScreenState extends State<HomeScreen> {
         color: AppTheme.backgroundColor,
         child: widget.alarms.isEmpty
             ? _EmptyState()
-            : ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: widget.alarms.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
+            : Column(
+                children: [
+                  // Health check banner (shows if there are critical issues)
+                  if (_healthCheckDone && _healthIssues.isNotEmpty)
+                    _buildHealthBanner(),
+                  // Alarm list
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: widget.alarms.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
                   final alarm = widget.alarms[index];
 
-                  // Calculate distance and progress if alarm is active and we have location
+                  // Calculate distance and ETA if alarm is active and we have location
                   double? distance;
-                  int? progress;
+                  Duration? eta;
                   if (alarm.isActive && _currentLocation != null) {
-                    distance = _calculateDistance(
+                    distance = Geolocator.distanceBetween(
                       _currentLocation!.latitude,
                       _currentLocation!.longitude,
                       alarm.latitude,
                       alarm.longitude,
                     );
-                    progress = _calculateProgress(distance, alarm.radius);
+
+                    // Calculate ETA using new calculator
+                    eta = ETACalculator.calculateETA(
+                      currentDistance: distance,
+                      currentPosition: _currentLocation!,
+                    );
                   }
 
                   // Wrap card with Dismissible for swipe actions
                   return Dismissible(
                     key: ValueKey(alarm.id),
+                    // Allow swipe actions for all alarms (including active/completed ones)
                     confirmDismiss: (direction) async {
                       if (direction == DismissDirection.endToStart) {
-                        // Swipe left - Delete action
+                        // Swipe left - Delete action (always allowed)
                         return await _confirmDelete(context, alarm);
                       } else if (direction == DismissDirection.startToEnd) {
                         // Swipe right - Edit action
+                        // For ALL active alarms (including completed), show message to toggle off first
+                        if (alarm.isActive) {
+                          final message = alarm.isCompleted
+                              ? 'Please toggle off the completed alarm before editing'
+                              : 'Please toggle off the alarm before editing';
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(message),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                          return false;
+                        }
+                        // Only allow editing of inactive alarms
                         await _editAlarm(context, alarm);
                         return false; // Don't dismiss
                       }
@@ -570,7 +771,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: _AlarmCard(
                       alarm: alarm,
                       currentDistance: distance,
-                      progress: progress,
+                      eta: eta,
                       onTap: () {
                         if (alarm.isActive) {
                           // Active alarm: Navigate to live map detail view
@@ -594,9 +795,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             .where((a) => a.isActive && a.id != alarm.id)
                             .length;
 
-                        // Check maximum limit first (10 active alarms)
-                        if (activeCount >= 10) {
-                          await _showMaxLimitDialog(context);
+                        // Check tier-based alarm limit
+                        final tierError = await TierService.canActivateAlarm(activeCount);
+                        if (tierError != null) {
+                          // Show upgrade prompt
+                          await _showTierLimitDialog(context, tierError);
                           return;
                         }
 
@@ -623,7 +826,79 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   ); // Close Dismissible widget
                 },
+                      ),
+                    ),
+                  ],
+                ),
+      ),
+    );
+  }
+
+  /// Build health check banner showing critical issues
+  Widget _buildHealthBanner() {
+    final criticalIssues = _healthIssues
+        .where((i) => i.severity == HealthIssueSeverity.critical)
+        .toList();
+
+    if (criticalIssues.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.orange.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.warning_amber, color: Colors.orange, size: 24),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '${criticalIssues.length} Critical Issue${criticalIssues.length > 1 ? 's' : ''} Detected',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                  ),
+                ),
               ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            criticalIssues.first.title,
+            style: const TextStyle(fontSize: 14),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () {
+                  AppHealthMonitor.showHealthCheckDialog(context);
+                },
+                child: const Text('View Details'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: criticalIssues.first.fixAction,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                ),
+                child: Text(criticalIssues.first.fixButtonLabel ?? 'Fix'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -790,7 +1065,7 @@ class _AlarmCard extends StatelessWidget {
   final VoidCallback onTap;
   final ValueChanged<bool> onToggle;
   final double? currentDistance;
-  final int? progress;
+  final Duration? eta;
 
   const _AlarmCard({
     Key? key,
@@ -798,7 +1073,7 @@ class _AlarmCard extends StatelessWidget {
     required this.onTap,
     required this.onToggle,
     this.currentDistance,
-    this.progress,
+    this.eta,
   }) : super(key: key);
 
   /// Format distance for display
@@ -965,13 +1240,12 @@ class _AlarmCard extends StatelessWidget {
                     if (isCompleted) ...[
                       const SizedBox(height: AppTheme.paddingSmall),
                       _CompletedProgressIndicator(),
-                    ] else if (isActive &&
-                        currentDistance != null &&
-                        progress != null) ...[
+                    ] else if (isActive && currentDistance != null) ...[
                       const SizedBox(height: AppTheme.paddingSmall),
                       _ProgressIndicator(
                         distance: currentDistance!,
-                        progress: progress!,
+                        eta: eta,
+                        targetRadius: alarm.radius,
                         isActive: isActive,
                       ),
                     ],
@@ -1206,12 +1480,14 @@ class _ModernActionButton extends StatelessWidget {
 
 class _ProgressIndicator extends StatelessWidget {
   final double distance;
-  final int progress;
+  final Duration? eta;
+  final double targetRadius;
   final bool isActive;
 
   const _ProgressIndicator({
     required this.distance,
-    required this.progress,
+    required this.targetRadius,
+    this.eta,
     required this.isActive,
   });
 
@@ -1226,16 +1502,22 @@ class _ProgressIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progressColor = progress >= 75
-        ? AppTheme.successColor
-        : progress >= 40
-        ? AppTheme.accentGreen
-        : AppTheme.primaryColor;
+    // Calculate progress for the progress bar
+    final progress = ETACalculator.calculateProgress(
+      currentDistance: distance,
+      targetRadius: targetRadius,
+    );
+
+    // Get color based on ETA or progress
+    final progressColor = ETACalculator.getProgressColor(
+      progress: progress,
+      eta: eta,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Distance text and progress percentage
+        // Distance text and ETA (instead of percentage)
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -1262,8 +1544,9 @@ class _ProgressIndicator extends StatelessWidget {
                 ),
               ],
             ),
+            // Show ETA instead of percentage
             Text(
-              '$progress%',
+              ETACalculator.formatETA(eta, shortFormat: true),
               style: AppTheme.labelSmall.copyWith(
                 color: progressColor,
                 fontWeight: FontWeight.bold,
@@ -1276,7 +1559,7 @@ class _ProgressIndicator extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
           child: LinearProgressIndicator(
-            value: progress / 100,
+            value: progress,
             minHeight: 6,
             backgroundColor: isActive
                 ? AppTheme.activeAlarmBorder.withValues(alpha: 0.2)

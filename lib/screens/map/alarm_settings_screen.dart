@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../models/alarm.dart';
 import '../../services/alarm_storage_service.dart';
 import '../../services/geofence_service.dart';
 import '../../services/alarm_sound_service.dart';
+import '../../services/tier_service.dart';
+import '../../utils/trip_distance_calculator.dart';
 import '../alarm_detail_map_screen.dart';
+import '../paywall_screen.dart';
 
 class AlarmSettingsScreen extends StatefulWidget {
   final String locationName;
@@ -68,6 +72,43 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
     if (_nameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a location name')),
+      );
+      return;
+    }
+
+    // Check trip distance against tier limits (MANDATORY - blocks creation if validation fails)
+    try {
+      final currentPosition = await Geolocator.getCurrentPosition();
+      final distanceKm = TripDistanceCalculator.calculateDistanceFromPosition(
+        currentPosition: currentPosition,
+        targetLat: widget.selectedLocation.latitude,
+        targetLon: widget.selectedLocation.longitude,
+      );
+
+      debugPrint('🔍 Trip distance validation: ${distanceKm.toStringAsFixed(1)}km');
+
+      // Validate distance against tier limits
+      final tierError = await TierService.canCreateAlarmAtDistance(distanceKm);
+      if (tierError != null) {
+        debugPrint('⚠️ Trip distance exceeds tier limit: $tierError');
+        // Show upgrade dialog
+        if (!mounted) return;
+        await _showDistanceLimitDialog(tierError, distanceKm);
+        return;
+      }
+
+      debugPrint('✅ Trip distance within tier limits');
+    } catch (e) {
+      debugPrint('❌ Failed to validate trip distance: $e');
+      if (!mounted) return;
+
+      // BLOCK alarm creation if location validation fails
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Cannot validate trip distance: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
       );
       return;
     }
@@ -172,6 +213,90 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen> {
         ),
       );
     }
+  }
+
+  /// Show distance limit exceeded dialog with upgrade option
+  Future<void> _showDistanceLimitDialog(String message, double distanceKm) async {
+    final currentTier = await TierService.getCurrentTier();
+    final requiredTier = TripDistanceCalculator.getRequiredTier(distanceKm);
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.lock, color: Theme.of(context).primaryColor, size: 28),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('Trip Distance Limit')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(message),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.place, size: 18, color: Colors.blue),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Trip Distance: ${TripDistanceCalculator.formatDistance(distanceKm)}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Current Plan: ${currentTier.displayName}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  Text(
+                    'Required: ${requiredTier.displayName} or higher',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PaywallScreen(
+                    highlightedMessage: message,
+                    suggestedTier: requiredTier,
+                  ),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Upgrade'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
