@@ -1,12 +1,17 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/alarm.dart';
 import '../models/tier.dart';
 import '../services/alarm_storage_service.dart';
 import '../services/geofence_service.dart';
 import '../services/location_service.dart';
 import '../services/tier_service.dart';
+import '../services/auth_service.dart';
+import '../services/subscription_service.dart';
 import '../utils/error_handler.dart';
 import '../utils/trip_distance_calculator.dart';
 import 'home_screen.dart';
@@ -14,6 +19,7 @@ import 'map_view_screen.dart';
 import 'settings_screen.dart';
 import 'map_screen.dart';
 import 'paywall_screen.dart';
+import 'auth_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({Key? key}) : super(key: key);
@@ -30,6 +36,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   bool _hasAlwaysPermission = true; // Assume true initially
   bool _permissionChecked = false;
 
+  // Auth state
+  final _authService = AuthService();
+  StreamSubscription<User?>? _authStateSubscription;
+  User? _currentUser;
+
   @override
   void initState() {
     super.initState();
@@ -37,8 +48,44 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _initializeAndLoadAlarms();
     _checkLocationPermission();
+    // Setup auth state listener
+    _setupAuthStateListener();
     // Request location permission on first launch
     _requestInitialPermissionIfNeeded();
+  }
+
+  /// Setup authentication state listener
+  void _setupAuthStateListener() {
+    _currentUser = _authService.currentUser;
+    _authStateSubscription = _authService.authStateChanges.listen((user) {
+      if (!mounted) return;
+
+      setState(() {
+        _currentUser = user;
+      });
+
+      if (user == null) {
+        // User signed out - show message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Signed out successfully'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // User signed in - show welcome
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Welcome back, ${user.email ?? "User"}!'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    });
   }
 
   @override
@@ -99,6 +146,103 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         // Update permission status
         await _checkLocationPermission();
       }
+    }
+
+    // After location permission, show auth welcome dialog if not signed in
+    await _showAuthWelcomeIfNeeded();
+  }
+
+  /// Show auth welcome dialog on first launch if user is not signed in
+  Future<void> _showAuthWelcomeIfNeeded() async {
+    // Check if user is already signed in
+    if (_authService.isSignedIn) return;
+
+    // Check if we've shown the welcome dialog before
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeenWelcome = prefs.getBool('auth_welcome_shown') ?? false;
+
+    if (hasSeenWelcome) return;
+
+    // Wait a bit for the location dialog to finish
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    if (!mounted) return;
+
+    // Show auth welcome dialog
+    final action = await showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.account_circle, color: Colors.blue, size: 28),
+            SizedBox(width: 12),
+            Flexible(child: Text('Sign In to Sync')),
+          ],
+        ),
+        content: const SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Create an account or sign in to:',
+                style: TextStyle(fontWeight: FontWeight.w600, height: 1.5),
+              ),
+              SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.cloud_sync, size: 20, color: Colors.blue),
+                  SizedBox(width: 12),
+                  Expanded(child: Text('Sync alarms across devices')),
+                ],
+              ),
+              SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.restore, size: 20, color: Colors.green),
+                  SizedBox(width: 12),
+                  Expanded(child: Text('Restore your subscriptions')),
+                ],
+              ),
+              SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.backup, size: 20, color: Colors.orange),
+                  SizedBox(width: 12),
+                  Expanded(child: Text('Backup your data')),
+                ],
+              ),
+              SizedBox(height: 16),
+              Text(
+                'You can always sign in later from Settings.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'skip'),
+            child: const Text('Continue as Guest'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'signin'),
+            child: const Text('Sign In'),
+          ),
+        ],
+      ),
+    );
+
+    // Mark as shown regardless of choice
+    await prefs.setBool('auth_welcome_shown', true);
+
+    // Handle user choice
+    if (action == 'signin' && mounted) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const AuthScreen()),
+      );
     }
   }
 
@@ -174,6 +318,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     // Clear callback when screen is disposed
     _geofenceService?.onAlarmCompleted = null;
+    // Cancel auth state subscription
+    _authStateSubscription?.cancel();
     super.dispose();
   }
 
@@ -657,6 +803,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return Scaffold(
       body: Column(
         children: [
+          // Show user profile banner if signed in
+          if (_currentUser != null) _buildUserProfileBanner(),
           // Show permission warning banner if needed
           if (_permissionChecked && !_hasAlwaysPermission)
             _buildPermissionWarningBanner(),
@@ -678,6 +826,61 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ],
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
+      ),
+    );
+  }
+
+  /// Build a banner showing user profile when signed in
+  Widget _buildUserProfileBanner() {
+    final email = _currentUser?.email ?? 'User';
+    final displayEmail = email.length > 25 ? '${email.substring(0, 22)}...' : email;
+
+    return Material(
+      color: Colors.blue.shade700,
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.person, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      displayEmail,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const Text(
+                      'Signed in',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.check_circle, color: Colors.green.shade300, size: 18),
+            ],
+          ),
+        ),
       ),
     );
   }

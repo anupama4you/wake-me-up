@@ -34,9 +34,9 @@ extension TierExtension on Tier {
       case Tier.free:
         return 'Free';
       case Tier.commuter:
-        return '\$4.99/month';
+        return '\$0.99/month';
       case Tier.pro:
-        return '\$9.99/month';
+        return '\$1.99/month';
     }
   }
 

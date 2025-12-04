@@ -152,3 +152,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Support
 
 For issues, questions, or suggestions, please open an issue on GitHub.
+flutter run -d 90CDE25C-E97A-4EC0-9A50-D382F9C0709C

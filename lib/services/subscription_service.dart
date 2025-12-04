@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import '../models/tier.dart';
 
@@ -72,8 +73,7 @@ class SubscriptionService {
   /// Purchase a subscription package
   Future<bool> purchasePackage(Package package) async {
     try {
-      final purchaseResult = await Purchases.purchasePackage(package);
-      final customerInfo = purchaseResult.customerInfo;
+      final customerInfo = await Purchases.purchasePackage(package);
 
       _currentTier = _determineCurrentTier(customerInfo);
       _subscriptionController.add(_currentTier);
@@ -134,7 +134,7 @@ class SubscriptionService {
   }
 
   /// Get subscription expiration date
-  Future<DateTime?> getExpirationDate() async {
+  Future<String?> getExpirationDate() async {
     try {
       final customerInfo = await Purchases.getCustomerInfo();
 

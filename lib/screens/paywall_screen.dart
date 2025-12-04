@@ -64,9 +64,10 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
       });
     } catch (e) {
       setState(() {
+        _offerings = null; // No offerings available
         _isLoadingOfferings = false;
       });
-      debugPrint('Failed to load offerings: $e');
+      debugPrint('⚠️ RevenueCat not available, using mock mode: $e');
     }
   }
 
@@ -233,9 +234,9 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
 
           const SizedBox(height: 8),
 
-          // Price
+          // Price - Shows localized currency from RevenueCat when available
           Text(
-            tier.price,
+            _getPriceForTier(tier),
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -441,36 +442,54 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
   }
 
   Future<void> _selectPlan(Tier tier) async {
-    // Free tier - just downgrade
+    debugPrint('🔐 _selectPlan called for tier: ${tier.displayName}');
+
+    // Free tier - just downgrade (mock for now)
     if (tier == Tier.free) {
-      _showMockDowngradeMessage();
+      debugPrint('✅ Free tier selected - no auth required');
+      await _mockChangePlan(tier);
       return;
     }
 
-    // Check if user is authenticated
+    // Check if user is authenticated FIRST (required for paid tiers)
+    debugPrint('🔍 Checking auth status: ${_authService.isSignedIn}');
     if (!_authService.isSignedIn) {
+      debugPrint('❌ User NOT signed in - showing auth required dialog');
       final shouldSignIn = await _showAuthRequiredDialog();
-      if (shouldSignIn != true) return;
+      if (shouldSignIn != true) {
+        debugPrint('⛔ User cancelled auth - aborting upgrade');
+        return;
+      }
 
       // Navigate to auth screen
       if (!mounted) return;
+      debugPrint('📱 Navigating to AuthScreen...');
       await Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => const AuthScreen()),
       );
 
       // Check again if user signed in
-      if (!_authService.isSignedIn) return;
+      debugPrint('🔍 Re-checking auth after navigation: ${_authService.isSignedIn}');
+      if (!_authService.isSignedIn) {
+        debugPrint('⛔ User still not signed in - aborting upgrade');
+        return;
+      }
+      debugPrint('✅ User signed in - proceeding with upgrade');
+    } else {
+      debugPrint('✅ User already signed in - proceeding with upgrade');
     }
 
     // Get the package for this tier
     final package = _getPackageForTier(tier);
     if (package == null) {
-      _showError('Unable to load subscription options. Please try again.');
+      // Fall back to mock upgrade if package not found
+      await _mockChangePlan(tier);
       return;
     }
 
     // Show loading
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -491,6 +510,7 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
         await _loadCurrentTier();
 
         // Show success dialog
+        if (!mounted) return;
         _showSuccessDialog(tier);
       }
     } catch (e) {
@@ -502,6 +522,62 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
       // Show error
       _showError(e.toString());
     }
+  }
+
+  /// Mock upgrade for testing (when RevenueCat is not configured)
+  /// This is a fallback that only runs if RevenueCat products are unavailable
+  Future<void> _mockChangePlan(Tier tier) async {
+    debugPrint('⚠️ Using mock upgrade - RevenueCat package not found');
+
+    // Show loading
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    // Mock upgrade (fallback when RevenueCat is not available)
+    await TierService.setTier(tier);
+
+    // Wait a bit to simulate payment processing
+    await Future.delayed(const Duration(seconds: 1));
+
+    if (!mounted) return;
+
+    // Close loading
+    Navigator.pop(context);
+
+    // Show success
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.warning, color: Colors.orange, size: 32),
+            const SizedBox(width: 12),
+            Text('${tier == Tier.free ? 'Plan Changed' : 'Test Mode'}'),
+          ],
+        ),
+        content: Text(
+          tier == Tier.free
+              ? 'You are now on the ${tier.displayName} plan.'
+              : 'TEST MODE: You are now on the ${tier.displayName} plan.\n\n'
+                'This is a mock upgrade because RevenueCat products are not available. '
+                'Check your RevenueCat dashboard configuration.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Close paywall
+            },
+            child: const Text('Great!'),
+          ),
+        ],
+      ),
+    );
   }
 
   Package? _getPackageForTier(Tier tier) {
@@ -520,6 +596,24 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
     }
 
     return null;
+  }
+
+  /// Get localized price string for a tier
+  /// Returns the actual RevenueCat price if available, otherwise returns hardcoded price
+  String _getPriceForTier(Tier tier) {
+    if (tier == Tier.free) {
+      return 'Free';
+    }
+
+    // Try to get real price from RevenueCat package
+    final package = _getPackageForTier(tier);
+    if (package != null) {
+      // Return localized price string from store (e.g., "₹79.00", "€0.99", "$0.99")
+      return package.storeProduct.priceString;
+    }
+
+    // Fall back to hardcoded price
+    return tier.price;
   }
 
   Future<bool?> _showAuthRequiredDialog() {
@@ -580,25 +674,6 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
               foregroundColor: Colors.white,
             ),
             child: const Text('Get Started'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showMockDowngradeMessage() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Downgrade to Free'),
-        content: const Text(
-          'To cancel your subscription, please use the subscription management '
-          'option in Settings.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
           ),
         ],
       ),
