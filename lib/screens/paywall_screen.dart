@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/tier.dart';
 import '../services/tier_service.dart';
 import '../services/subscription_service.dart';
@@ -353,11 +354,16 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Payment integration coming soon!',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
+                  // Only show status message if RevenueCat products aren't loading properly
+                  if (!isCurrentTier && (_isLoadingOfferings || _getPackageForTier(tier) == null)) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _isLoadingOfferings
+                          ? 'Loading subscription options...'
+                          : 'Test mode - RevenueCat not configured',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -444,10 +450,21 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
   Future<void> _selectPlan(Tier tier) async {
     debugPrint('🔐 _selectPlan called for tier: ${tier.displayName}');
 
-    // Free tier - just downgrade (mock for now)
+    // Free tier - guide user to cancel subscription through platform settings
     if (tier == Tier.free) {
-      debugPrint('✅ Free tier selected - no auth required');
-      await _mockChangePlan(tier);
+      debugPrint('✅ Free tier selected');
+
+      // If user currently has a paid subscription, show cancellation guide
+      if (_currentTier != Tier.free) {
+        await _showCancellationGuide();
+      } else {
+        // Already on free tier
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('You are already on the Free plan')),
+          );
+        }
+      }
       return;
     }
 
@@ -574,6 +591,67 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
               Navigator.pop(context); // Close paywall
             },
             child: const Text('Great!'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show guide for canceling subscription with deep link
+  Future<void> _showCancellationGuide() async {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline, color: AppTheme.primaryColor, size: 32),
+            SizedBox(width: 12),
+            Text('Cancel Subscription'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Tap the button below to open your subscription settings:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Your subscription will remain active until the end of your current billing period.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                final url = Uri.parse('https://apps.apple.com/account/subscriptions');
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                }
+              } catch (e) {
+                debugPrint('Failed to open subscription management: $e');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please manage your subscription through iOS Settings → Subscriptions'),
+                    ),
+                  );
+                }
+              }
+            },
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Open Subscription Settings'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
           ),
         ],
       ),

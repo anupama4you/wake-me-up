@@ -189,9 +189,9 @@ class SubscriptionService {
   String getProductIdForTier(Tier tier) {
     switch (tier) {
       case Tier.commuter:
-        return 'wakemeup_commuter_monthly';
+        return 'commuter';
       case Tier.pro:
-        return 'wakemeup_pro_monthly';
+        return 'pro';
       default:
         return '';
     }

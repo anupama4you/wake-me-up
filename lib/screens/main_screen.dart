@@ -803,8 +803,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return Scaffold(
       body: Column(
         children: [
-          // Show user profile banner if signed in
-          if (_currentUser != null) _buildUserProfileBanner(),
           // Show permission warning banner if needed
           if (_permissionChecked && !_hasAlwaysPermission)
             _buildPermissionWarningBanner(),
@@ -830,60 +828,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Build a banner showing user profile when signed in
-  Widget _buildUserProfileBanner() {
-    final email = _currentUser?.email ?? 'User';
-    final displayEmail = email.length > 25 ? '${email.substring(0, 22)}...' : email;
-
-    return Material(
-      color: Colors.blue.shade700,
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.person, color: Colors.white, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      displayEmail,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const Text(
-                      'Signed in',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.check_circle, color: Colors.green.shade300, size: 18),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   /// Build a warning banner for missing "Always" location permission
   Widget _buildPermissionWarningBanner() {

@@ -1,0 +1,129 @@
+{
+  "identifier" : "7B5E8F4C",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6738834516",
+    "_developerTeamID" : "J7Y3Z545C6",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 765432015.89313197,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21595805",
+      "localizations" : [
+
+      ],
+      "name" : "WakeMeUp Subscriptions",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "0.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6738836551",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlock extended features for daily commuters with up to 50km trip distance and 5 active alarms",
+              "displayName" : "WakeMeUp Commuter Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "commuter",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Commuter Monthly",
+          "subscriptionGroupID" : "21595805",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "1.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6738836848",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlock all premium features with unlimited trip distance, unlimited alarms, and priority support",
+              "displayName" : "WakeMeUp Pro Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "pro",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro Monthly",
+          "subscriptionGroupID" : "21595805",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

@@ -8,7 +8,7 @@ A Flutter mobile application that triggers alarms when you approach a specific l
 - 🗺️ **Google Maps Integration**: Select locations using an interactive map interface
 - 🔍 **Place Search**: Search for destinations by name or address using Google Places
 - 🔔 **Multiple Alarms**: Create and manage multiple location-based alarms
-- ⚙️ **Customizable Settings**: Adjust trigger radius (50m - 1km) and sound levels
+- ⚙️ **Customizable Settings**: Adjust trigger radius (100m - 5km) and sound levels
 - 📊 **Real-Time Tracking**: Monitor your position and active alarms on the map
 - 💾 **Persistent Storage**: Alarms are saved and persist across app restarts
 

@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
 import '../services/geofence_service.dart';
@@ -12,6 +14,7 @@ import '../services/auth_service.dart';
 import '../models/tier.dart';
 import 'paywall_screen.dart';
 import 'auth_screen.dart';
+import 'help_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onSettingsApplied;
@@ -34,11 +37,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
   TierLimits? _tierLimits;
 
   final _authService = AuthService();
+  final _subscriptionService = SubscriptionService();
+  StreamSubscription<Tier>? _subscriptionStreamListener;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _listenToSubscriptionChanges();
+  }
+
+  @override
+  void dispose() {
+    _subscriptionStreamListener?.cancel();
+    super.dispose();
+  }
+
+  /// Listen to subscription tier changes from RevenueCat
+  void _listenToSubscriptionChanges() {
+    _subscriptionStreamListener = _subscriptionService.subscriptionStream.listen((tier) {
+      setState(() {
+        _currentTier = tier;
+      });
+      // Reload tier limits when tier changes
+      _loadTierLimits();
+    });
+  }
+
+  /// Load tier limits separately
+  Future<void> _loadTierLimits() async {
+    final limits = await TierService.getTierLimits();
+    setState(() {
+      _tierLimits = limits;
+    });
   }
 
   Future<void> _loadSettings() async {
@@ -166,6 +197,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 24),
             _buildSectionTitle('ABOUT'),
             _buildSettingsCard([
+              _buildSettingRow(
+                'Help & Instructions',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const HelpScreen()),
+                  );
+                },
+              ),
+              const Divider(height: 1),
               _buildSettingRow('Version',
                   trailing:
                   Text('1.0.0', style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor))),
@@ -395,7 +436,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${_currentTier.displayName} Plan',
+                        _currentTier.displayName,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 22,
@@ -414,15 +455,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
               OutlinedButton(
-                onPressed: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const PaywallScreen(),
-                    ),
-                  );
-                  _loadSettings(); // Reload in case user upgraded
-                },
+                onPressed: () => _showPlanOptions(),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white,
                   side: const BorderSide(color: Colors.white, width: 2),
@@ -430,36 +463,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                child: Text(_currentTier == Tier.pro ? 'View Plans' : 'Upgrade Plan'),
+                child: const Text('Change Plan'),
               ),
-              if (_currentTier != Tier.free) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextButton.icon(
-                        onPressed: _restorePurchases,
-                        icon: const Icon(Icons.refresh, size: 16),
-                        label: const Text('Restore'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white70,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextButton.icon(
-                        onPressed: _manageSubscription,
-                        icon: const Icon(Icons.manage_accounts, size: 16),
-                        label: const Text('Manage'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white70,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
             ],
           ),
           const SizedBox(height: 16),
@@ -751,61 +756,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// Restore previous purchases
-  Future<void> _restorePurchases() async {
-    // Show loading
-    showDialog(
+  /// Show plan options (change plan or cancel subscription)
+  Future<void> _showPlanOptions() async {
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Plan Options',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.swap_horiz, color: AppTheme.primaryColor),
+              title: const Text('View All Plans'),
+              subtitle: const Text('Upgrade, downgrade, or compare plans'),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const PaywallScreen(),
+                  ),
+                );
+                _loadSettings();
+              },
+            ),
+            if (_currentTier != Tier.free) ...[
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.cancel, color: Colors.red),
+                title: const Text('Cancel Subscription'),
+                subtitle: const Text('Manage or cancel your subscription'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _manageSubscription();
+                },
+              ),
+            ],
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
-
-    try {
-      final subscriptionService = SubscriptionService();
-      await subscriptionService.restorePurchases();
-
-      if (!mounted) return;
-
-      // Close loading
-      Navigator.pop(context);
-
-      // Reload settings to show updated tier
-      await _loadSettings();
-
-      // Show success message
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Purchases restored successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      // Close loading
-      Navigator.pop(context);
-
-      // Show error
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to restore purchases: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 
-  /// Open subscription management page
+  /// Open subscription management page via deep link
   Future<void> _manageSubscription() async {
     try {
-      final subscriptionService = SubscriptionService();
-      final managementUrl = await subscriptionService.getManagementURL();
+      // Try to open App Store subscriptions page directly
+      final url = Uri.parse('https://apps.apple.com/account/subscriptions');
 
-      if (managementUrl != null) {
-        // Show info dialog with instructions
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        // Fallback: Show instructions if deep link fails
         if (!mounted) return;
         showDialog(
           context: context,
@@ -825,20 +837,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
         );
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to access subscription management'),
-          ),
-        );
       }
     } catch (e) {
+      debugPrint('Failed to open subscription management: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red,
+        const SnackBar(
+          content: Text('Please manage your subscription through iOS Settings → Subscriptions'),
         ),
       );
     }
@@ -1172,15 +1177,15 @@ class _RadiusPickerDialogState extends State<_RadiusPickerDialog> {
           Slider(
             value: _value,
             min: 100,
-            max: 2000,
-            divisions: 19,
+            max: 5000,
+            divisions: 49,
             onChanged: (v) => setState(() => _value = v),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('100m', style: AppTheme.caption),
-              Text('2km', style: AppTheme.caption),
+              Text('5km', style: AppTheme.caption),
             ],
           ),
         ],

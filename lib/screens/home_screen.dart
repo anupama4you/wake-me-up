@@ -3,15 +3,15 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
-import '../models/tier.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
-import '../services/tier_service.dart';
+import '../services/auth_service.dart';
 import '../utils/eta_calculator.dart';
 import '../utils/app_health_monitor.dart';
 import 'map_screen.dart';
 import 'alarm_detail_map_screen.dart';
-import 'paywall_screen.dart';
+import 'auth_screen.dart';
+import 'help_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final List<Alarm> alarms;
@@ -288,113 +288,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  /// Show battery warning dialog when enabling multiple alarms
-  Future<bool?> _showBatteryWarning(
-    BuildContext context,
-    int totalActive,
-  ) async {
-    return await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.battery_alert, color: AppTheme.warningColor, size: 28),
-            const SizedBox(width: 12),
-            const Text('Battery Usage Warning'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'You are about to enable $totalActive active alarms.',
-              style: AppTheme.bodyMedium.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: AppTheme.paddingMedium),
-            Text(
-              'Multiple active alarms will:',
-              style: AppTheme.bodyMedium.copyWith(
-                color: AppTheme.textSecondaryColor,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _buildWarningPoint(
-              Icons.battery_charging_full,
-              'Increase battery usage',
-            ),
-            _buildWarningPoint(
-              Icons.location_on,
-              'Track your location continuously',
-            ),
-            _buildWarningPoint(Icons.gps_fixed, 'Check GPS every 10 seconds'),
-            const SizedBox(height: AppTheme.paddingMedium),
-            Container(
-              padding: const EdgeInsets.all(AppTheme.paddingMedium),
-              decoration: BoxDecoration(
-                color: AppTheme.infoColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                border: Border.all(
-                  color: AppTheme.infoColor.withValues(alpha: 0.3),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.tips_and_updates,
-                    color: AppTheme.infoColor,
-                    size: 20,
-                  ),
-                  const SizedBox(width: AppTheme.paddingSmall),
-                  Expanded(
-                    child: Text(
-                      'Tip: Disable alarms when not needed to save battery',
-                      style: AppTheme.labelMedium.copyWith(
-                        color: AppTheme.infoColor,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.warningColor,
-              foregroundColor: AppTheme.textOnPrimaryColor,
-            ),
-            child: const Text('Enable Anyway'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Build warning point widget
-  Widget _buildWarningPoint(IconData icon, String text) {
-    return Padding(
-      padding: const EdgeInsets.only(left: AppTheme.paddingSmall, bottom: 6),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: AppTheme.iconSizeSmall,
-            color: AppTheme.warningColor,
-          ),
-          const SizedBox(width: AppTheme.paddingSmall),
-          Text(text, style: AppTheme.bodySmall),
-        ],
-      ),
-    );
-  }
-
   /// Navigate to edit alarm screen
   Future<void> _editAlarm(BuildContext context, Alarm alarm) async {
     await Navigator.push(
@@ -436,94 +329,103 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   /// Show help dialog with instructions
-  Future<void> _showHelpDialog(BuildContext context) async {
-    await showDialog(
+  /// Show user menu when profile icon is tapped
+  void _showUserMenu(BuildContext context, String email) {
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.help_outline, color: AppTheme.primaryColor, size: 28),
-            SizedBox(width: AppTheme.paddingMedium),
-            Text('How to Use WakeMeUp'),
+            // User info header
+            Container(
+              padding: const EdgeInsets.all(AppTheme.paddingLarge),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                border: Border(
+                  bottom: BorderSide(
+                    color: Colors.grey.shade300,
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: AppTheme.accentGreen,
+                    radius: 24,
+                    child: Text(
+                      email.substring(0, 1).toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppTheme.paddingMedium),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          email,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 16,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const Text(
+                          'Signed in',
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Menu items
+            ListTile(
+              leading: const Icon(Icons.help_outline),
+              title: const Text('Help & Instructions'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const HelpScreen()),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text('Settings'),
+              onTap: () {
+                Navigator.pop(context);
+                // Switch to settings tab (index 2)
+                DefaultTabController.of(context)?.animateTo(2);
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text(
+                'Sign Out',
+                style: TextStyle(color: Colors.red),
+              ),
+              onTap: () async {
+                Navigator.pop(context);
+                final authService = AuthService();
+                await authService.signOut();
+              },
+            ),
           ],
         ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHelpSection(
-                '📍 Creating an Alarm',
-                '1. Tap the + button\n'
-                '2. Select a location on the map\n'
-                '3. Set your alarm radius and sound\n'
-                '4. Toggle the alarm ON',
-              ),
-              const SizedBox(height: 16),
-              _buildHelpSection(
-                '✏️ Editing an Alarm',
-                '• Tap inactive alarm to edit\n'
-                '• Or swipe right on any alarm',
-              ),
-              const SizedBox(height: 16),
-              _buildHelpSection(
-                '🗑️ Deleting an Alarm',
-                'Swipe left on any alarm',
-              ),
-              const SizedBox(height: 16),
-              _buildHelpSection(
-                '⚙️ Settings',
-                '• Default radius and sound\n'
-                '• High accuracy GPS mode\n'
-                '• Location update interval\n'
-                '• Apply settings to all alarms',
-              ),
-              const SizedBox(height: 16),
-              _buildHelpSection(
-                '📱 Permissions Required',
-                '• Location: Always (for background)\n'
-                '• Notifications: Enabled',
-              ),
-              const Divider(height: 24),
-              _buildHelpSection(
-                '✉️ Contact & Support',
-                'For questions or feedback:\n'
-                'Email: support@wakemeup.app',
-                isContact: true,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Got it!'),
-          ),
-        ],
       ),
-    );
-  }
-
-  Widget _buildHelpSection(String title, String content, {bool isContact = false}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: AppTheme.labelLarge.copyWith(
-            fontWeight: FontWeight.bold,
-            color: isContact ? AppTheme.primaryColor : AppTheme.textPrimaryColor,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          content,
-          style: AppTheme.bodySmall.copyWith(
-            color: AppTheme.textSecondaryColor,
-            height: 1.4,
-          ),
-        ),
-      ],
     );
   }
 
@@ -557,100 +459,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   /// Show maximum limit dialog
-  Future<void> _showTierLimitDialog(BuildContext context, String message) async {
-    final currentTier = await TierService.getCurrentTier();
-    final limits = await TierService.getTierLimits();
-
-    await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.lock, color: AppTheme.primaryColor, size: 28),
-            const SizedBox(width: AppTheme.paddingMedium),
-            const Text('Upgrade Required'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              message,
-              style: AppTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: AppTheme.primaryColor.withOpacity(0.3),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Current Plan: ${currentTier.displayName}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Active Alarms: ${limits.formattedAlarmLimit}',
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Maybe Later'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => PaywallScreen(
-                    highlightedMessage: message,
-                  ),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primaryColor,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Upgrade'),
-          ),
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
     // Count active alarms
     final activeCount = widget.alarms.where((a) => a.isActive).length;
 
+    final authService = AuthService();
+    final currentUser = authService.currentUser;
+    final isSignedIn = currentUser != null;
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(
-            Icons.help_outline,
-            color: AppTheme.textOnPrimaryColor,
+          icon: CircleAvatar(
+            backgroundColor: isSignedIn
+                ? AppTheme.accentGreen
+                : Colors.white.withValues(alpha: 0.3),
+            radius: 16,
+            child: isSignedIn
+                ? Text(
+                    currentUser.email?.substring(0, 1).toUpperCase() ?? 'U',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  )
+                : const Icon(
+                    Icons.person_outline,
+                    color: AppTheme.textOnPrimaryColor,
+                    size: 20,
+                  ),
           ),
-          onPressed: () => _showHelpDialog(context),
-          tooltip: 'Help & Instructions',
+          onPressed: () {
+            if (isSignedIn) {
+              // Show user menu
+              _showUserMenu(context, currentUser.email ?? 'User');
+            } else {
+              // Navigate to auth screen
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AuthScreen()),
+              );
+            }
+          },
+          tooltip: isSignedIn ? currentUser.email : 'Sign In',
         ),
         title: Center(
           child: Image.asset(
@@ -788,39 +642,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         }
                       },
                       onToggle: (active) async {
-                      // If we're turning ON an inactive alarm:
-                      if (active && !alarm.isActive) {
-                        // Count currently active alarms
-                        final activeCount = widget.alarms
-                            .where((a) => a.isActive && a.id != alarm.id)
-                            .length;
-
-                        // Check tier-based alarm limit
-                        final tierError = await TierService.canActivateAlarm(activeCount);
-                        if (tierError != null) {
-                          // Show upgrade prompt
-                          await _showTierLimitDialog(context, tierError);
-                          return;
-                        }
-
-                        // Show battery warning if enabling 2nd or more alarm
-                        if (activeCount >= 1) {
-                          final shouldEnable = await _showBatteryWarning(
-                            context,
-                            activeCount + 1,
-                          );
-                          if (shouldEnable == true) {
-                            widget.onToggleAlarm(alarm.id, true);
-                          }
-                          return;
-                        }
-
-                        // First alarm - no warning needed
-                        widget.onToggleAlarm(alarm.id, true);
-                        return;
-                      }
-
-                      // Otherwise just forward the toggle
+                      // Simply toggle the alarm without warnings
                       widget.onToggleAlarm(alarm.id, active);
                     },
                   ),
