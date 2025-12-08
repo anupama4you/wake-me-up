@@ -17,7 +17,8 @@
       "Bash(rm:*)",
       "Bash(flutter attach:*)",
       "Bash(export LANG=en_US.UTF-8)",
-      "Bash(flutter build:*)"
+      "Bash(flutter build:*)",
+      "Bash(./gradlew tasks:*)"
     ],
     "deny": [],
     "ask": []

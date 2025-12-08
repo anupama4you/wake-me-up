@@ -89,9 +89,26 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Choose Your Plan',
-          style: TextStyle(color: AppTheme.textOnPrimaryColor),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Choose Your Plan',
+              style: TextStyle(
+                color: AppTheme.textOnPrimaryColor,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'Current: ${_currentTier.icon} ${_currentTier.displayName}',
+              style: const TextStyle(
+                color: AppTheme.textOnPrimaryColor,
+                fontSize: 14,
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+          ],
         ),
         backgroundColor: AppTheme.primaryColor,
         bottom: TabBar(

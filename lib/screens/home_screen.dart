@@ -3,9 +3,11 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/alarm.dart';
+import '../models/tier.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
 import '../services/auth_service.dart';
+import '../services/tier_service.dart';
 import '../utils/eta_calculator.dart';
 import '../utils/app_health_monitor.dart';
 import 'map_screen.dart';
@@ -39,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isAppInForeground = true;
   List<HealthIssue> _healthIssues = [];
   bool _healthCheckDone = false;
+  Tier _currentTier = Tier.free;
 
   @override
   void initState() {
@@ -51,6 +54,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _updateCurrentLocation();
     }
     _checkAppHealth();
+    _loadCurrentTier();
   }
 
   @override
@@ -81,6 +85,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _stopLocationTracking(); // Stop first to clean up
       _startLocationTrackingIfNeeded(); // Then restart and get immediate location
       _updateCurrentLocation(); // Get location immediately for progress bar
+    }
+  }
+
+  /// Load current subscription tier
+  Future<void> _loadCurrentTier() async {
+    final tier = await TierService.getCurrentTier();
+    if (mounted) {
+      setState(() {
+        _currentTier = tier;
+      });
     }
   }
 
@@ -507,10 +521,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           tooltip: isSignedIn ? currentUser.email : 'Sign In',
         ),
         title: Center(
-          child: Image.asset(
-            'assets/icons/wakemeup_text.png',
-            height: 36,
-            fit: BoxFit.contain,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset(
+                'assets/icons/wakemeup_text.png',
+                height: 32,
+                fit: BoxFit.contain,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${_currentTier.icon} ${_currentTier.displayName}',
+                style: const TextStyle(
+                  color: AppTheme.textOnPrimaryColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ),
         centerTitle: true,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
+import 'forgot_password_screen.dart';
 
 /// Authentication screen with email/password and Google Sign-In
 class AuthScreen extends StatefulWidget {
@@ -91,43 +92,13 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  Future<void> _handleForgotPassword() async {
-    final email = _emailController.text.trim();
-
-    if (email.isEmpty) {
-      setState(() {
-        _errorMessage = 'Please enter your email address';
-      });
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      await _authService.sendPasswordResetEmail(email);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Password reset email sent. Check your inbox.'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
+  void _navigateToForgotPassword() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ForgotPasswordScreen(),
+      ),
+    );
   }
 
   @override
@@ -135,7 +106,7 @@ class _AuthScreenState extends State<AuthScreen> {
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
-        title: Text(_isLogin ? 'Sign In' : 'Create Account'),
+        title: Text(_isLogin ? 'Welcome Back' : 'Get Started'),
         backgroundColor: AppTheme.primaryColor,
         foregroundColor: Colors.white,
       ),
@@ -149,31 +120,24 @@ class _AuthScreenState extends State<AuthScreen> {
               children: [
                 const SizedBox(height: 32),
 
-                // Logo or App Name
-                Icon(
-                  Icons.alarm,
-                  size: 80,
-                  color: AppTheme.primaryColor,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'WakeMeUp',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.primaryColor,
+                // Logo
+                Center(
+                  child: Image.asset(
+                    'assets/icons/wakemeup_text.png',
+                    height: 60,
+                    fit: BoxFit.contain,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 24),
                 Text(
                   _isLogin
-                      ? 'Sign in to sync your alarms'
-                      : 'Create an account to get started',
+                      ? 'Welcome back! Ready to never miss your stop?'
+                      : 'Never miss your stop again! Let\'s get you started.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 16,
                     color: Colors.grey,
+                    height: 1.4,
                   ),
                 ),
                 const SizedBox(height: 48),
@@ -200,19 +164,19 @@ class _AuthScreenState extends State<AuthScreen> {
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
-                    labelText: 'Email',
-                    hintText: 'your.email@example.com',
-                    prefixIcon: const Icon(Icons.email),
+                    labelText: 'Email Address',
+                    hintText: 'you@example.com',
+                    prefixIcon: const Icon(Icons.email_outlined),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Please enter your email';
+                      return 'We need your email to continue';
                     }
                     if (!value.contains('@')) {
-                      return 'Please enter a valid email';
+                      return 'Please enter a valid email address';
                     }
                     return null;
                   },
@@ -225,18 +189,18 @@ class _AuthScreenState extends State<AuthScreen> {
                   obscureText: true,
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    hintText: 'Enter your password',
-                    prefixIcon: const Icon(Icons.lock),
+                    hintText: _isLogin ? 'Your password' : 'Create a strong password',
+                    prefixIcon: const Icon(Icons.lock_outline),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Please enter your password';
+                      return 'Password is required';
                     }
                     if (!_isLogin && value.length < 6) {
-                      return 'Password must be at least 6 characters';
+                      return 'Use at least 6 characters for security';
                     }
                     return null;
                   },
@@ -248,8 +212,8 @@ class _AuthScreenState extends State<AuthScreen> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: _isLoading ? null : _handleForgotPassword,
-                      child: const Text('Forgot Password?'),
+                      onPressed: _isLoading ? null : _navigateToForgotPassword,
+                      child: const Text('Forgot your password?'),
                     ),
                   ),
 
@@ -277,7 +241,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                         )
                       : Text(
-                          _isLogin ? 'Sign In' : 'Create Account',
+                          _isLogin ? 'Sign In' : 'Get Started',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -328,8 +292,9 @@ class _AuthScreenState extends State<AuthScreen> {
                   children: [
                     Text(
                       _isLogin
-                          ? "Don't have an account? "
+                          ? "New here? "
                           : 'Already have an account? ',
+                      style: const TextStyle(fontSize: 15),
                     ),
                     TextButton(
                       onPressed: _isLoading
@@ -341,10 +306,11 @@ class _AuthScreenState extends State<AuthScreen> {
                               });
                             },
                       child: Text(
-                        _isLogin ? 'Sign Up' : 'Sign In',
+                        _isLogin ? 'Create Account' : 'Sign In',
                         style: TextStyle(
                           color: AppTheme.primaryColor,
                           fontWeight: FontWeight.bold,
+                          fontSize: 15,
                         ),
                       ),
                     ),
