@@ -67,5 +67,17 @@
 	</array>
 	<key>SKPaymentTransactionsEnabled</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- REVERSED_CLIENT_ID from GoogleService-Info.plist -->
+				<string>com.googleusercontent.apps.515288351370-270oc4j3behuph3d2krjbvnf07p3ll7r</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
