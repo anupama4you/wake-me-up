@@ -1,13 +1,20 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
 import '../services/geofence_service.dart';
 import '../services/alarm_storage_service.dart';
 import '../services/alarm_sound_service.dart';
 import '../services/tier_service.dart';
+import '../services/subscription_service.dart';
+import '../services/auth_service.dart';
 import '../models/tier.dart';
 import 'paywall_screen.dart';
+import 'auth_screen.dart';
+import 'help_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onSettingsApplied;
@@ -29,10 +36,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Tier _currentTier = Tier.free;
   TierLimits? _tierLimits;
 
+  final _authService = AuthService();
+  final _subscriptionService = SubscriptionService();
+  StreamSubscription<Tier>? _subscriptionStreamListener;
+
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    _listenToSubscriptionChanges();
+  }
+
+  @override
+  void dispose() {
+    _subscriptionStreamListener?.cancel();
+    super.dispose();
+  }
+
+  /// Listen to subscription tier changes from RevenueCat
+  void _listenToSubscriptionChanges() {
+    _subscriptionStreamListener = _subscriptionService.subscriptionStream.listen((tier) {
+      setState(() {
+        _currentTier = tier;
+      });
+      // Reload tier limits when tier changes
+      _loadTierLimits();
+    });
+  }
+
+  /// Load tier limits separately
+  Future<void> _loadTierLimits() async {
+    final limits = await TierService.getTierLimits();
+    setState(() {
+      _tierLimits = limits;
+    });
   }
 
   Future<void> _loadSettings() async {
@@ -63,6 +100,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Account Section
+            _buildAccountSection(),
+            const SizedBox(height: 24),
+
             // Subscription Section
             _buildSubscriptionSection(),
             const SizedBox(height: 24),
@@ -156,6 +197,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 24),
             _buildSectionTitle('ABOUT'),
             _buildSettingsCard([
+              _buildSettingRow(
+                'Help & Instructions',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const HelpScreen()),
+                  );
+                },
+              ),
+              const Divider(height: 1),
               _buildSettingRow('Version',
                   trailing:
                   Text('1.0.0', style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor))),
@@ -168,6 +219,179 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildAccountSection() {
+    final currentUser = _authService.currentUser;
+    final isSignedIn = currentUser != null;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isSignedIn ? Icons.account_circle : Icons.account_circle_outlined,
+                size: 28,
+                color: AppTheme.primaryColor,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Account',
+                style: AppTheme.headingMedium.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          const SizedBox(height: 16),
+
+          if (isSignedIn) ...[
+            // User is signed in - show profile
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    color: AppTheme.primaryColor,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        currentUser.email ?? 'No email',
+                        style: AppTheme.bodyMedium.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _getSignInMethod(currentUser),
+                        style: AppTheme.bodySmall.copyWith(
+                          color: AppTheme.textSecondaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // Action buttons
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _handleSignOut,
+                    icon: const Icon(Icons.logout, size: 18),
+                    label: const Text('Sign Out'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red, width: 1.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _showAccountOptions,
+                    icon: const Icon(Icons.settings, size: 18),
+                    label: const Text('Manage'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.primaryColor,
+                      side: const BorderSide(color: AppTheme.primaryColor, width: 1.5),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            // User is not signed in - show sign in prompt
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Sign in to sync your data',
+                  style: AppTheme.bodyMedium.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Access your alarms and subscriptions across all your devices',
+                  style: AppTheme.bodySmall.copyWith(
+                    color: AppTheme.textSecondaryColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _navigateToSignIn,
+                    icon: const Icon(Icons.login, size: 20),
+                    label: const Text('Sign In'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _getSignInMethod(User user) {
+    for (final providerData in user.providerData) {
+      if (providerData.providerId == 'google.com') {
+        return 'Signed in with Google';
+      } else if (providerData.providerId == 'password') {
+        return 'Signed in with Email';
+      }
+    }
+    return 'Signed in';
   }
 
   Widget _buildSubscriptionSection() {
@@ -212,7 +436,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${_currentTier.displayName} Plan',
+                        _currentTier.displayName,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 22,
@@ -231,15 +455,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
               OutlinedButton(
-                onPressed: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const PaywallScreen(),
-                    ),
-                  );
-                  _loadSettings(); // Reload in case user upgraded
-                },
+                onPressed: () => _showPlanOptions(),
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white,
                   side: const BorderSide(color: Colors.white, width: 2),
@@ -247,7 +463,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                child: Text(_currentTier == Tier.pro ? 'View Plans' : 'Upgrade Plan'),
+                child: const Text('Change Plan'),
               ),
             ],
           ),
@@ -539,6 +755,393 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
   }
+
+  /// Show plan options (change plan or cancel subscription)
+  Future<void> _showPlanOptions() async {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Plan Options',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.swap_horiz, color: AppTheme.primaryColor),
+              title: const Text('View All Plans'),
+              subtitle: const Text('Upgrade, downgrade, or compare plans'),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const PaywallScreen(),
+                  ),
+                );
+                _loadSettings();
+              },
+            ),
+            if (_currentTier != Tier.free) ...[
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.cancel, color: Colors.red),
+                title: const Text('Cancel Subscription'),
+                subtitle: const Text('Manage or cancel your subscription'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _manageSubscription();
+                },
+              ),
+            ],
+            const SizedBox(height: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Open subscription management page via deep link
+  Future<void> _manageSubscription() async {
+    try {
+      // Try to open App Store subscriptions page directly
+      final url = Uri.parse('https://apps.apple.com/account/subscriptions');
+
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        // Fallback: Show instructions if deep link fails
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Manage Subscription'),
+            content: const Text(
+              'To manage your subscription (cancel, change plan, etc.), '
+              'go to your device\'s subscription settings:\n\n'
+              '• iOS: Settings → [Your Name] → Subscriptions\n'
+              '• Android: Play Store → Menu → Subscriptions',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Failed to open subscription management: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please manage your subscription through iOS Settings → Subscriptions'),
+        ),
+      );
+    }
+  }
+
+  /// Navigate to sign in screen
+  Future<void> _navigateToSignIn() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const AuthScreen(),
+      ),
+    );
+    // Reload settings after returning from auth screen
+    _loadSettings();
+  }
+
+  /// Handle sign out
+  Future<void> _handleSignOut() async {
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.logout, color: Colors.orange),
+            SizedBox(width: 12),
+            Text('Sign Out'),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to sign out?\n\n'
+          'You can sign back in anytime to restore your data.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Show loading
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    try {
+      // Sign out from Firebase
+      await _authService.signOut();
+
+      // Reset to free tier
+      await TierService.setTier(Tier.free);
+
+      if (!mounted) return;
+
+      // Close loading
+      Navigator.pop(context);
+
+      // Reload settings
+      await _loadSettings();
+
+      // Show success message
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Signed out successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      // Close loading
+      Navigator.pop(context);
+
+      // Show error
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to sign out: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// Show account options dialog
+  Future<void> _showAccountOptions() async {
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Account Options'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.lock_reset, color: AppTheme.primaryColor),
+              title: const Text('Reset Password'),
+              subtitle: const Text('Send password reset email'),
+              onTap: () => Navigator.pop(context, 'reset_password'),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.delete_forever, color: Colors.red),
+              title: const Text('Delete Account'),
+              subtitle: const Text('Permanently delete your account'),
+              onTap: () => Navigator.pop(context, 'delete_account'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    if (action == null || !mounted) return;
+
+    if (action == 'reset_password') {
+      _handlePasswordReset();
+    } else if (action == 'delete_account') {
+      _handleDeleteAccount();
+    }
+  }
+
+  /// Handle password reset
+  Future<void> _handlePasswordReset() async {
+    final currentUser = _authService.currentUser;
+    if (currentUser?.email == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No email associated with this account'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reset Password'),
+        content: Text(
+          'A password reset email will be sent to:\n\n${currentUser!.email}\n\n'
+          'Please check your inbox and follow the instructions.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+            ),
+            child: const Text('Send Email'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _authService.sendPasswordResetEmail(currentUser!.email!);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password reset email sent! Check your inbox.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to send reset email: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// Handle account deletion
+  Future<void> _handleDeleteAccount() async {
+    final currentUser = _authService.currentUser;
+    if (currentUser == null) return;
+
+    // Show warning dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.warning, color: Colors.red, size: 32),
+            SizedBox(width: 12),
+            Text('Delete Account?'),
+          ],
+        ),
+        content: const Text(
+          '⚠️ WARNING: This action cannot be undone!\n\n'
+          'Deleting your account will:\n'
+          '• Remove all your data\n'
+          '• Cancel active subscriptions\n'
+          '• Delete all saved alarms\n\n'
+          'Are you absolutely sure?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete Account'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Show loading
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    try {
+      // Delete all alarms
+      await AlarmStorageService.deleteAllAlarms();
+
+      // Delete account from Firebase
+      await _authService.deleteAccount();
+
+      // Reset to free tier
+      await TierService.setTier(Tier.free);
+
+      if (!mounted) return;
+
+      // Close loading
+      Navigator.pop(context);
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Account deleted successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      // Reload settings
+      await _loadSettings();
+    } catch (e) {
+      if (!mounted) return;
+
+      // Close loading
+      Navigator.pop(context);
+
+      // Show error
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete account: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 }
 
 // Radius Picker Dialog
@@ -574,15 +1177,15 @@ class _RadiusPickerDialogState extends State<_RadiusPickerDialog> {
           Slider(
             value: _value,
             min: 100,
-            max: 2000,
-            divisions: 19,
+            max: 5000,
+            divisions: 49,
             onChanged: (v) => setState(() => _value = v),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('100m', style: AppTheme.caption),
-              Text('2km', style: AppTheme.caption),
+              Text('5km', style: AppTheme.caption),
             ],
           ),
         ],

@@ -1111,8 +1111,8 @@ class _MapScreenState extends State<MapScreen> {
                             Slider(
                               value: _triggerRadius,
                               min: 100,
-                              max: 2000,
-                              divisions: 19,
+                              max: 5000,
+                              divisions: 49,
                               activeColor: AppTheme.primaryColor,
                               inactiveColor: AppTheme.borderLightColor,
                               onChanged: (value) {
@@ -1132,7 +1132,7 @@ class _MapScreenState extends State<MapScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text('100m', style: AppTheme.caption),
-                                Text('2km', style: AppTheme.caption),
+                                Text('5km', style: AppTheme.caption),
                               ],
                             ),
                             const SizedBox(height: AppTheme.paddingLarge),

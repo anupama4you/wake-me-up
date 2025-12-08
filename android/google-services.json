@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "515288351370",
+    "project_id": "wake-me-up-664eb",
+    "storage_bucket": "wake-me-up-664eb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:515288351370:android:b617d00e4c969678c66373",
+        "android_client_info": {
+          "package_name": "com.example.wakemeup"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "515288351370-2leqepkqfo64e3agrrekaft445r1f509.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCoOfm_h0tjPaCA0zuLts9mXpU0ph8MmW4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "515288351370-2leqepkqfo64e3agrrekaft445r1f509.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "515288351370-270oc4j3behuph3d2krjbvnf07p3ll7r.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.anupama.wakemeup"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

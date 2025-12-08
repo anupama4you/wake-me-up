@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'screens/main_screen.dart';
+import 'screens/onboarding/onboarding_screen.dart';
 import 'theme/app_theme.dart';
 import 'services/settings_service.dart';
+import 'services/subscription_service.dart';
+import 'services/auth_service.dart';
+import 'services/first_time_setup_service.dart';
 
 // Global notification plugin instance
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -35,6 +40,33 @@ Future<void> main() async {
     debugPrint('✅ Settings service initialized');
   } catch (e) {
     debugPrint('⚠️ Error initializing settings: $e');
+  }
+
+  // Initialize Firebase
+  try {
+    await Firebase.initializeApp();
+    debugPrint('✅ Firebase initialized');
+  } catch (e) {
+    debugPrint('⚠️ Error initializing Firebase: $e');
+  }
+
+  // Initialize RevenueCat
+  try {
+    final revenueCatApiKey = dotenv.env['REVENUECAT_API_KEY'];
+    if (revenueCatApiKey != null && revenueCatApiKey.isNotEmpty) {
+      final authService = AuthService();
+      final subscriptionService = SubscriptionService();
+
+      await subscriptionService.initialize(
+        apiKey: revenueCatApiKey,
+        userId: authService.userId,
+      );
+      debugPrint('✅ RevenueCat initialized');
+    } else {
+      debugPrint('⚠️ RevenueCat API key not found in environment variables');
+    }
+  } catch (e) {
+    debugPrint('⚠️ Error initializing RevenueCat: $e');
   }
 
   // Initialize notifications BEFORE running app
@@ -88,16 +120,60 @@ Future<void> _initializeNotifications() async {
   debugPrint('✅ Notifications initialized');
 }
 
-class LocationAlarmApp extends StatelessWidget {
+class LocationAlarmApp extends StatefulWidget {
   const LocationAlarmApp({super.key});
+
+  @override
+  State<LocationAlarmApp> createState() => _LocationAlarmAppState();
+}
+
+class _LocationAlarmAppState extends State<LocationAlarmApp> {
+  bool _isFirstTimeUser = true;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkFirstTimeUser();
+  }
+
+  Future<void> _checkFirstTimeUser() async {
+    final isFirstTime = await FirstTimeSetupService.isFirstTimeUser();
+    setState(() {
+      _isFirstTimeUser = isFirstTime;
+      _isLoading = false;
+    });
+    debugPrint('👤 First time user: $isFirstTime');
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'WakeMeUp',
       theme: AppTheme.lightTheme,
-      home: const MainScreen(),
       debugShowCheckedModeBanner: false,
+      home: _isLoading
+          ? const _LoadingScreen()
+          : _isFirstTimeUser
+              ? const OnboardingScreen()
+              : const MainScreen(),
+    );
+  }
+}
+
+/// Simple loading screen shown while checking first-time user status
+class _LoadingScreen extends StatelessWidget {
+  const _LoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: AppTheme.backgroundColor,
+      body: Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(AppTheme.primaryColor),
+        ),
+      ),
     );
   }
 }

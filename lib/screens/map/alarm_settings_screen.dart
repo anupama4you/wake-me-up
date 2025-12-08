@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../models/alarm.dart';
+import '../../models/tier.dart';
 import '../../services/alarm_storage_service.dart';
 import '../../services/geofence_service.dart';
 import '../../services/alarm_sound_service.dart';

@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/tier.dart';
 import '../services/tier_service.dart';
+import '../services/subscription_service.dart';
+import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
+import 'auth_screen.dart';
 
 /// Paywall screen showing subscription tier options in tabs
 class PaywallScreen extends StatefulWidget {
@@ -21,12 +26,17 @@ class PaywallScreen extends StatefulWidget {
 class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProviderStateMixin {
   Tier _currentTier = Tier.free;
   late TabController _tabController;
+  final _subscriptionService = SubscriptionService();
+  final _authService = AuthService();
+  Offerings? _offerings;
+  bool _isLoadingOfferings = true;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadCurrentTier();
+    _loadOfferings();
   }
 
   @override
@@ -46,6 +56,22 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
     _tabController.index = initialTier.index;
   }
 
+  Future<void> _loadOfferings() async {
+    try {
+      final offerings = await _subscriptionService.getOfferings();
+      setState(() {
+        _offerings = offerings;
+        _isLoadingOfferings = false;
+      });
+    } catch (e) {
+      setState(() {
+        _offerings = null; // No offerings available
+        _isLoadingOfferings = false;
+      });
+      debugPrint('⚠️ RevenueCat not available, using mock mode: $e');
+    }
+  }
+
   Tier _getNextTier(Tier current) {
     switch (current) {
       case Tier.free:
@@ -63,9 +89,26 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Choose Your Plan',
-          style: TextStyle(color: AppTheme.textOnPrimaryColor),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Choose Your Plan',
+              style: TextStyle(
+                color: AppTheme.textOnPrimaryColor,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              'Current: ${_currentTier.icon} ${_currentTier.displayName}',
+              style: const TextStyle(
+                color: AppTheme.textOnPrimaryColor,
+                fontSize: 14,
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+          ],
         ),
         backgroundColor: AppTheme.primaryColor,
         bottom: TabBar(
@@ -209,9 +252,9 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
 
           const SizedBox(height: 8),
 
-          // Price
+          // Price - Shows localized currency from RevenueCat when available
           Text(
-            tier.price,
+            _getPriceForTier(tier),
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -328,11 +371,16 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Payment integration coming soon!',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
+                  // Only show status message if RevenueCat products aren't loading properly
+                  if (!isCurrentTier && (_isLoadingOfferings || _getPackageForTier(tier) == null)) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _isLoadingOfferings
+                          ? 'Loading subscription options...'
+                          : 'Test mode - RevenueCat not configured',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -417,14 +465,113 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
   }
 
   Future<void> _selectPlan(Tier tier) async {
+    debugPrint('🔐 _selectPlan called for tier: ${tier.displayName}');
+
+    // Free tier - guide user to cancel subscription through platform settings
+    if (tier == Tier.free) {
+      debugPrint('✅ Free tier selected');
+
+      // If user currently has a paid subscription, show cancellation guide
+      if (_currentTier != Tier.free) {
+        await _showCancellationGuide();
+      } else {
+        // Already on free tier
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('You are already on the Free plan')),
+          );
+        }
+      }
+      return;
+    }
+
+    // Check if user is authenticated FIRST (required for paid tiers)
+    debugPrint('🔍 Checking auth status: ${_authService.isSignedIn}');
+    if (!_authService.isSignedIn) {
+      debugPrint('❌ User NOT signed in - showing auth required dialog');
+      final shouldSignIn = await _showAuthRequiredDialog();
+      if (shouldSignIn != true) {
+        debugPrint('⛔ User cancelled auth - aborting upgrade');
+        return;
+      }
+
+      // Navigate to auth screen
+      if (!mounted) return;
+      debugPrint('📱 Navigating to AuthScreen...');
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const AuthScreen()),
+      );
+
+      // Check again if user signed in
+      debugPrint('🔍 Re-checking auth after navigation: ${_authService.isSignedIn}');
+      if (!_authService.isSignedIn) {
+        debugPrint('⛔ User still not signed in - aborting upgrade');
+        return;
+      }
+      debugPrint('✅ User signed in - proceeding with upgrade');
+    } else {
+      debugPrint('✅ User already signed in - proceeding with upgrade');
+    }
+
+    // Get the package for this tier
+    final package = _getPackageForTier(tier);
+    if (package == null) {
+      // Fall back to mock upgrade if package not found
+      await _mockChangePlan(tier);
+      return;
+    }
+
     // Show loading
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => const Center(child: CircularProgressIndicator()),
     );
 
-    // Mock upgrade (replace with actual payment later)
+    try {
+      // Purchase the package
+      final success = await _subscriptionService.purchasePackage(package);
+
+      if (!mounted) return;
+
+      // Close loading
+      Navigator.pop(context);
+
+      if (success) {
+        // Refresh current tier
+        await _loadCurrentTier();
+
+        // Show success dialog
+        if (!mounted) return;
+        _showSuccessDialog(tier);
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      // Close loading
+      Navigator.pop(context);
+
+      // Show error
+      _showError(e.toString());
+    }
+  }
+
+  /// Mock upgrade for testing (when RevenueCat is not configured)
+  /// This is a fallback that only runs if RevenueCat products are unavailable
+  Future<void> _mockChangePlan(Tier tier) async {
+    debugPrint('⚠️ Using mock upgrade - RevenueCat package not found');
+
+    // Show loading
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    // Mock upgrade (fallback when RevenueCat is not available)
     await TierService.setTier(tier);
 
     // Wait a bit to simulate payment processing
@@ -436,19 +583,23 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
     Navigator.pop(context);
 
     // Show success
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            const Icon(Icons.check_circle, color: Colors.green, size: 32),
+            const Icon(Icons.warning, color: Colors.orange, size: 32),
             const SizedBox(width: 12),
-            Text('${tier == Tier.free ? 'Plan Changed' : 'Upgrade Successful'}!'),
+            Text('${tier == Tier.free ? 'Plan Changed' : 'Test Mode'}'),
           ],
         ),
         content: Text(
-          'You are now on the ${tier.displayName} plan!\n\n'
-          'Note: This is a mock upgrade for testing. Real payment integration coming soon.',
+          tier == Tier.free
+              ? 'You are now on the ${tier.displayName} plan.'
+              : 'TEST MODE: You are now on the ${tier.displayName} plan.\n\n'
+                'This is a mock upgrade because RevenueCat products are not available. '
+                'Check your RevenueCat dashboard configuration.',
         ),
         actions: [
           TextButton(
@@ -457,6 +608,189 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
               Navigator.pop(context); // Close paywall
             },
             child: const Text('Great!'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show guide for canceling subscription with deep link
+  Future<void> _showCancellationGuide() async {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline, color: AppTheme.primaryColor, size: 32),
+            SizedBox(width: 12),
+            Text('Cancel Subscription'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Tap the button below to open your subscription settings:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Your subscription will remain active until the end of your current billing period.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                final url = Uri.parse('https://apps.apple.com/account/subscriptions');
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                }
+              } catch (e) {
+                debugPrint('Failed to open subscription management: $e');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please manage your subscription through iOS Settings → Subscriptions'),
+                    ),
+                  );
+                }
+              }
+            },
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Open Subscription Settings'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Package? _getPackageForTier(Tier tier) {
+    if (_offerings == null || _offerings!.current == null) {
+      return null;
+    }
+
+    final current = _offerings!.current!;
+    final productId = _subscriptionService.getProductIdForTier(tier);
+
+    // Try to find package by product ID
+    for (final package in current.availablePackages) {
+      if (package.storeProduct.identifier == productId) {
+        return package;
+      }
+    }
+
+    return null;
+  }
+
+  /// Get localized price string for a tier
+  /// Returns the actual RevenueCat price if available, otherwise returns hardcoded price
+  String _getPriceForTier(Tier tier) {
+    if (tier == Tier.free) {
+      return 'Free';
+    }
+
+    // Try to get real price from RevenueCat package
+    final package = _getPackageForTier(tier);
+    if (package != null) {
+      // Return localized price string from store (e.g., "₹79.00", "€0.99", "$0.99")
+      return package.storeProduct.priceString;
+    }
+
+    // Fall back to hardcoded price
+    return tier.price;
+  }
+
+  Future<bool?> _showAuthRequiredDialog() {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.lock, color: Colors.orange),
+            SizedBox(width: 12),
+            Text('Sign In Required'),
+          ],
+        ),
+        content: const Text(
+          'You need to sign in to purchase a subscription. '
+          'This allows you to restore your subscription on other devices.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Sign In'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSuccessDialog(Tier tier) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green, size: 32),
+            const SizedBox(width: 12),
+            Text('Welcome to ${tier.displayName}!'),
+          ],
+        ),
+        content: Text(
+          'Your subscription is now active. Enjoy all the premium features!',
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              Navigator.pop(context); // Close paywall
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Get Started'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showError(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.error, color: Colors.red),
+            SizedBox(width: 12),
+            Text('Purchase Failed'),
+          ],
+        ),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
           ),
         ],
       ),
