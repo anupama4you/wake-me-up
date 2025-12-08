@@ -11,7 +11,6 @@ import '../services/geofence_service.dart';
 import '../services/location_service.dart';
 import '../services/tier_service.dart';
 import '../services/auth_service.dart';
-import '../services/subscription_service.dart';
 import '../utils/error_handler.dart';
 import '../utils/trip_distance_calculator.dart';
 import 'home_screen.dart';
