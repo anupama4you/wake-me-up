@@ -91,13 +91,25 @@ class _MapViewScreenState extends State<MapViewScreen> {
   void _fitAllMarkers(List<Alarm> alarms) {
     if (alarms.isEmpty) return;
 
-    // If only one alarm, just zoom to it
+    // If only one alarm, zoom to it with appropriate zoom level based on radius
     if (alarms.length == 1) {
+      final alarm = alarms.first;
+      double zoom;
+      if (alarm.radius >= 5000) {
+        zoom = 12.0; // 5km-10km range
+      } else if (alarm.radius >= 3000) {
+        zoom = 13.0; // 3km-5km range
+      } else if (alarm.radius >= 2000) {
+        zoom = 13.5; // 2km-3km range
+      } else {
+        zoom = 14.0; // 1km-2km range
+      }
+
       Future.delayed(const Duration(milliseconds: 100), () {
         _mapController?.animateCamera(
           CameraUpdate.newLatLngZoom(
-            LatLng(alarms.first.latitude, alarms.first.longitude),
-            15,
+            LatLng(alarm.latitude, alarm.longitude),
+            zoom,
           ),
         );
       });
@@ -142,10 +154,24 @@ class _MapViewScreenState extends State<MapViewScreen> {
   }
 
   void _zoomToAlarm(Alarm alarm) {
+    // Calculate zoom level based on radius to ensure the full circle is visible
+    // Formula: zoom = log2(earth_circumference / (radius * pixels_per_tile)) - 1
+    // Simplified: larger radius = lower zoom level
+    double zoom;
+    if (alarm.radius >= 5000) {
+      zoom = 12.0; // 5km-10km range
+    } else if (alarm.radius >= 3000) {
+      zoom = 13.0; // 3km-5km range
+    } else if (alarm.radius >= 2000) {
+      zoom = 13.5; // 2km-3km range
+    } else {
+      zoom = 14.0; // 1km-2km range
+    }
+
     _mapController?.animateCamera(
       CameraUpdate.newLatLngZoom(
         LatLng(alarm.latitude, alarm.longitude),
-        16,
+        zoom,
       ),
     );
     setState(() {

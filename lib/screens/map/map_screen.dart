@@ -51,7 +51,7 @@ class _MapScreenState extends State<MapScreen> {
   String? _sessionToken;
 
   // Alarm settings
-  double _triggerRadius = 500.0; // Default 500m
+  double _triggerRadius = 1000.0; // Default 1km
   String _soundLevel = 'Loud';
 
   // UI state
@@ -72,7 +72,7 @@ class _MapScreenState extends State<MapScreen> {
       final alarm = widget.existingAlarm!;
       _searchController.text = alarm.address;
       _selectedLocation = LatLng(alarm.latitude, alarm.longitude);
-      _triggerRadius = alarm.radius;
+      _triggerRadius = _normalizeRadius(alarm.radius);
       _soundLevel = alarm.soundLevel;
       // Don't call _updateMapMarkers here - map controller isn't ready yet
     } else {
@@ -126,7 +126,7 @@ class _MapScreenState extends State<MapScreen> {
 
   Future<void> _loadDefaultSettings() async {
     setState(() {
-      _triggerRadius = SettingsService.defaultRadius;
+      _triggerRadius = _normalizeRadius(SettingsService.defaultRadius);
       _soundLevel = SettingsService.defaultSoundLevel;
     });
   }
@@ -139,6 +139,14 @@ class _MapScreenState extends State<MapScreen> {
     _sheetController.dispose();
     super.dispose();
   }
+
+  double _normalizeRadius(double radiusInMeters) {
+    // Snap to nearest 1km increment within 1km-10km bounds
+    final km = (radiusInMeters / 1000).round().clamp(1, 10);
+    return km * 1000.0;
+  }
+
+  int get _selectedRadiusKm => (_triggerRadius / 1000).round().clamp(1, 10);
 
   String _generateSessionToken() {
     final random = Random.secure();
@@ -246,12 +254,7 @@ class _MapScreenState extends State<MapScreen> {
 
         // Only animate camera if we just set the location to current location
         if (widget.existingAlarm == null && _selectedLocation != null) {
-          _mapController!.animateCamera(
-            CameraUpdate.newLatLngZoom(
-              _getOffsetPosition(_selectedLocation!),
-              13.5,
-            ),
-          );
+          _centerOnLocation(_selectedLocation!);
         }
       }
     }
@@ -319,21 +322,26 @@ class _MapScreenState extends State<MapScreen> {
 
   /// Calculate the appropriate zoom level to show the entire radius circle
   double _calculateZoomForRadius(double radiusInMeters) {
-    // At zoom level 15, roughly 1 pixel = 4.77 meters at the equator
-    // We want the radius to take up about 1/3 of the screen (visible with padding)
-    // Screen is roughly 400 logical pixels wide, so we want radius to be ~130 pixels
-    // Formula: zoom = log2(156543.03 * cos(lat) / metersPerPixel)
-    // For simplicity, use a lookup approach:
+    // Simple lookup so the circle stays comfortably within view
+    double baseZoom;
+    if (radiusInMeters <= 1000) {
+      baseZoom = 14.5; // 1km
+    } else if (radiusInMeters <= 2000) {
+      baseZoom = 13.8; // 2km
+    } else if (radiusInMeters <= 3000) {
+      baseZoom = 13.3; // 3km
+    } else if (radiusInMeters <= 4000) {
+      baseZoom = 13.0; // 4km
+    } else if (radiusInMeters <= 5000) {
+      baseZoom = 12.8; // 5km
+    } else if (radiusInMeters <= 7000) {
+      baseZoom = 12.3; // 7km
+    } else {
+      baseZoom = 12.0; // 10km
+    }
 
-    if (radiusInMeters <= 100) return 17.0;
-    if (radiusInMeters <= 200) return 16.5;
-    if (radiusInMeters <= 300) return 16.0;
-    if (radiusInMeters <= 500) return 15.5;
-    if (radiusInMeters <= 750) return 15.0;
-    if (radiusInMeters <= 1000) return 14.5;
-    if (radiusInMeters <= 1500) return 14.0;
-    if (radiusInMeters <= 2000) return 13.5;
-    return 13.0;
+    // Zoom out ~1.5 levels (~3x area) to ensure more context is visible without going too far
+    return (baseZoom - 1.5).clamp(3.0, 20.0);
   }
 
   void _onSearchChanged(String input) {
@@ -385,10 +393,11 @@ class _MapScreenState extends State<MapScreen> {
 
         if (!mounted) return;
 
-        final preds = result.suggestions
-            .map((s) => s.placePrediction)
-            .whereType<PlacePrediction>()
-            .toList();
+        final preds =
+            result.suggestions
+                .map((s) => s.placePrediction)
+                .whereType<PlacePrediction>()
+                .toList();
 
         setState(() {
           _predictions = preds;
@@ -536,9 +545,8 @@ class _MapScreenState extends State<MapScreen> {
           if (!mounted) return;
           await Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (context) => PaywallScreen(
-                highlightedMessage: tierError,
-              ),
+              builder:
+                  (context) => PaywallScreen(highlightedMessage: tierError),
             ),
           );
         }
@@ -553,12 +561,14 @@ class _MapScreenState extends State<MapScreen> {
       id:
           widget.existingAlarm?.id ??
           DateTime.now().millisecondsSinceEpoch.toString(),
-      name: _searchController.text.isNotEmpty
-          ? _searchController.text
-          : 'My Alarm',
-      address: _searchController.text.isNotEmpty
-          ? _searchController.text
-          : 'Selected Location',
+      name:
+          _searchController.text.isNotEmpty
+              ? _searchController.text
+              : 'My Alarm',
+      address:
+          _searchController.text.isNotEmpty
+              ? _searchController.text
+              : 'Selected Location',
       latitude: _selectedLocation!.latitude,
       longitude: _selectedLocation!.longitude,
       radius: _triggerRadius,
@@ -621,59 +631,57 @@ class _MapScreenState extends State<MapScreen> {
   Future<bool?> _showUpgradeDialog(String message) async {
     return showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.warningColor.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(
-                Icons.star_rounded,
-                color: AppTheme.warningColor,
-                size: 24,
-              ),
+      builder:
+          (context) => AlertDialog(
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.warningColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.star_rounded,
+                    color: AppTheme.warningColor,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Upgrade Required',
+                    style: AppTheme.headingMedium,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Upgrade Required',
-                style: AppTheme.headingMedium,
+            content: Text(message, style: AppTheme.bodyMedium),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: Text(
+                  'Cancel',
+                  style: AppTheme.labelLarge.copyWith(
+                    color: AppTheme.textSecondaryColor,
+                  ),
+                ),
               ),
-            ),
-          ],
-        ),
-        content: Text(
-          message,
-          style: AppTheme.bodyMedium,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
-              'Cancel',
-              style: AppTheme.labelLarge.copyWith(
-                color: AppTheme.textSecondaryColor,
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.warningColor,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 12,
+                  ),
+                ),
+                child: const Text('View Plans'),
               ),
-            ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.warningColor,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: 12,
-              ),
-            ),
-            child: const Text('View Plans'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -686,18 +694,20 @@ class _MapScreenState extends State<MapScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: widget.existingAlarm != null
-                    ? AppTheme.accentGreen.withValues(alpha: 0.15)
-                    : AppTheme.primaryColor.withValues(alpha: 0.15),
+                color:
+                    widget.existingAlarm != null
+                        ? AppTheme.accentGreen.withValues(alpha: 0.15)
+                        : AppTheme.primaryColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 widget.existingAlarm != null
                     ? Icons.edit_location_alt_rounded
                     : Icons.add_location_alt_rounded,
-                color: widget.existingAlarm != null
-                    ? AppTheme.accentGreen
-                    : AppTheme.primaryColor,
+                color:
+                    widget.existingAlarm != null
+                        ? AppTheme.accentGreen
+                        : AppTheme.primaryColor,
                 size: 22,
               ),
             ),
@@ -720,25 +730,28 @@ class _MapScreenState extends State<MapScreen> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               decoration: BoxDecoration(
-                color: _pinModeActive
-                    ? AppTheme.accentGreen
-                    : AppTheme.primaryColor.withValues(alpha: 0.1),
+                color:
+                    _pinModeActive
+                        ? AppTheme.accentGreen
+                        : AppTheme.primaryColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: _pinModeActive
-                      ? AppTheme.accentGreen
-                      : AppTheme.primaryColor,
+                  color:
+                      _pinModeActive
+                          ? AppTheme.accentGreen
+                          : AppTheme.primaryColor,
                   width: 2,
                 ),
-                boxShadow: _pinModeActive
-                    ? [
-                        BoxShadow(
-                          color: AppTheme.accentGreen.withValues(alpha: 0.4),
-                          blurRadius: 8,
-                          spreadRadius: 1,
-                        ),
-                      ]
-                    : null,
+                boxShadow:
+                    _pinModeActive
+                        ? [
+                          BoxShadow(
+                            color: AppTheme.accentGreen.withValues(alpha: 0.4),
+                            blurRadius: 8,
+                            spreadRadius: 1,
+                          ),
+                        ]
+                        : null,
               ),
               child: Material(
                 color: Colors.transparent,
@@ -761,18 +774,20 @@ class _MapScreenState extends State<MapScreen> {
                           _pinModeActive
                               ? Icons.touch_app
                               : Icons.add_location_alt,
-                          color: _pinModeActive
-                              ? Colors.white
-                              : AppTheme.primaryColor,
+                          color:
+                              _pinModeActive
+                                  ? Colors.white
+                                  : AppTheme.primaryColor,
                           size: 20,
                         ),
                         const SizedBox(width: 6),
                         Text(
                           _pinModeActive ? 'Tap Map' : 'Drop Pin',
                           style: TextStyle(
-                            color: _pinModeActive
-                                ? Colors.white
-                                : AppTheme.primaryColor,
+                            color:
+                                _pinModeActive
+                                    ? Colors.white
+                                    : AppTheme.primaryColor,
                             fontWeight: FontWeight.w600,
                             fontSize: 13,
                           ),
@@ -857,24 +872,25 @@ class _MapScreenState extends State<MapScreen> {
                             Icons.search,
                             color: AppTheme.primaryColor,
                           ),
-                          suffixIcon: _searchController.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(
-                                    Icons.clear,
-                                    color: AppTheme.textSecondaryColor,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _searchController.clear();
-                                      _predictions = [];
-                                      _showPredictions = false;
-                                      _selectedLocation =
-                                          null; // Deselect location
-                                      _updateMapMarkers(); // Update map to remove marker
-                                    });
-                                  },
-                                )
-                              : null,
+                          suffixIcon:
+                              _searchController.text.isNotEmpty
+                                  ? IconButton(
+                                    icon: const Icon(
+                                      Icons.clear,
+                                      color: AppTheme.textSecondaryColor,
+                                    ),
+                                    onPressed: () {
+                                      setState(() {
+                                        _searchController.clear();
+                                        _predictions = [];
+                                        _showPredictions = false;
+                                        _selectedLocation =
+                                            null; // Deselect location
+                                        _updateMapMarkers(); // Update map to remove marker
+                                      });
+                                    },
+                                  )
+                                  : null,
                           border: InputBorder.none,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: AppTheme.paddingMedium,
@@ -904,73 +920,76 @@ class _MapScreenState extends State<MapScreen> {
                           ],
                         ),
                         constraints: const BoxConstraints(maxHeight: 250),
-                        child: _isLoadingSuggestions
-                            ? const Center(
-                                child: Padding(
+                        child:
+                            _isLoadingSuggestions
+                                ? const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(
+                                      AppTheme.paddingLarge,
+                                    ),
+                                    child: CircularProgressIndicator(
+                                      color: AppTheme.primaryColor,
+                                    ),
+                                  ),
+                                )
+                                : _predictions.isEmpty
+                                ? const Padding(
                                   padding: EdgeInsets.all(
                                     AppTheme.paddingLarge,
                                   ),
-                                  child: CircularProgressIndicator(
-                                    color: AppTheme.primaryColor,
+                                  child: Center(
+                                    child: Text(
+                                      'No locations found',
+                                      style: AppTheme.bodyMedium,
+                                    ),
                                   ),
-                                ),
-                              )
-                            : _predictions.isEmpty
-                            ? const Padding(
-                                padding: EdgeInsets.all(AppTheme.paddingLarge),
-                                child: Center(
-                                  child: Text(
-                                    'No locations found',
-                                    style: AppTheme.bodyMedium,
+                                )
+                                : ListView.separated(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: AppTheme.paddingSmall,
                                   ),
-                                ),
-                              )
-                            : ListView.separated(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: AppTheme.paddingSmall,
-                                ),
-                                shrinkWrap: true,
-                                itemCount: _predictions.length,
-                                separatorBuilder: (context, index) =>
-                                    const Divider(
-                                      height: 1,
-                                      color: AppTheme.borderLightColor,
-                                    ),
-                                itemBuilder: (context, index) {
-                                  final prediction = _predictions[index];
-                                  return ListTile(
-                                    leading: const Icon(
-                                      Icons.location_on,
-                                      color: AppTheme.primaryColor,
-                                    ),
-                                    title: Text(
-                                      prediction
-                                              .structuredFormat
-                                              ?.mainText
-                                              ?.text ??
-                                          prediction.text?.text ??
-                                          '',
-                                      style: AppTheme.labelLarge,
-                                    ),
-                                    subtitle:
+                                  shrinkWrap: true,
+                                  itemCount: _predictions.length,
+                                  separatorBuilder:
+                                      (context, index) => const Divider(
+                                        height: 1,
+                                        color: AppTheme.borderLightColor,
+                                      ),
+                                  itemBuilder: (context, index) {
+                                    final prediction = _predictions[index];
+                                    return ListTile(
+                                      leading: const Icon(
+                                        Icons.location_on,
+                                        color: AppTheme.primaryColor,
+                                      ),
+                                      title: Text(
                                         prediction
                                                 .structuredFormat
-                                                ?.secondaryText
-                                                ?.text !=
-                                            null
-                                        ? Text(
-                                            prediction
-                                                .structuredFormat!
-                                                .secondaryText!
-                                                .text,
-                                            style: AppTheme.bodySmall,
-                                          )
-                                        : null,
-                                    onTap: () =>
-                                        _onPredictionTapped(prediction),
-                                  );
-                                },
-                              ),
+                                                ?.mainText
+                                                ?.text ??
+                                            prediction.text?.text ??
+                                            '',
+                                        style: AppTheme.labelLarge,
+                                      ),
+                                      subtitle:
+                                          prediction
+                                                      .structuredFormat
+                                                      ?.secondaryText
+                                                      ?.text !=
+                                                  null
+                                              ? Text(
+                                                prediction
+                                                    .structuredFormat!
+                                                    .secondaryText!
+                                                    .text,
+                                                style: AppTheme.bodySmall,
+                                              )
+                                              : null,
+                                      onTap:
+                                          () => _onPredictionTapped(prediction),
+                                    );
+                                  },
+                                ),
                       ),
                   ],
                 ),
@@ -1099,7 +1118,7 @@ class _MapScreenState extends State<MapScreen> {
                                     ),
                                   ),
                                   child: Text(
-                                    '${_triggerRadius.toInt()}m',
+                                    '${_selectedRadiusKm}km',
                                     style: AppTheme.labelLarge.copyWith(
                                       color: AppTheme.primaryColor,
                                       fontWeight: FontWeight.bold,
@@ -1108,11 +1127,12 @@ class _MapScreenState extends State<MapScreen> {
                                 ),
                               ],
                             ),
+                            const SizedBox(height: AppTheme.paddingSmall),
                             Slider(
                               value: _triggerRadius,
-                              min: 100,
-                              max: 5000,
-                              divisions: 49,
+                              min: 1000,
+                              max: 10000,
+                              divisions: 9,
                               activeColor: AppTheme.primaryColor,
                               inactiveColor: AppTheme.borderLightColor,
                               onChanged: (value) {
@@ -1121,8 +1141,7 @@ class _MapScreenState extends State<MapScreen> {
                                   _updateMapMarkers();
                                 });
                               },
-                              onChangeEnd: (value) {
-                                // After radius change, zoom to show the full circle
+                              onChangeEnd: (_) {
                                 if (_selectedLocation != null) {
                                   _centerOnLocation(_selectedLocation!);
                                 }
@@ -1131,8 +1150,8 @@ class _MapScreenState extends State<MapScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text('100m', style: AppTheme.caption),
-                                Text('5km', style: AppTheme.caption),
+                                Text('1km', style: AppTheme.caption),
+                                Text('10km', style: AppTheme.caption),
                               ],
                             ),
                             const SizedBox(height: AppTheme.paddingLarge),
@@ -1163,9 +1182,10 @@ class _MapScreenState extends State<MapScreen> {
                                 SizedBox(
                                   width: double.infinity,
                                   child: ElevatedButton(
-                                    onPressed: _selectedLocation != null
-                                        ? () => _saveAlarm(true)
-                                        : null,
+                                    onPressed:
+                                        _selectedLocation != null
+                                            ? () => _saveAlarm(true)
+                                            : null,
                                     style: ElevatedButton.styleFrom(
                                       padding: const EdgeInsets.symmetric(
                                         vertical: 16,
@@ -1268,9 +1288,10 @@ class _MapScreenState extends State<MapScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: AppTheme.paddingMedium),
         decoration: BoxDecoration(
-          color: isSelected
-              ? AppTheme.primaryColor.withValues(alpha: 0.1)
-              : AppTheme.borderLightColor,
+          color:
+              isSelected
+                  ? AppTheme.primaryColor.withValues(alpha: 0.1)
+                  : AppTheme.borderLightColor,
           borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
           border: Border.all(
             color: isSelected ? AppTheme.primaryColor : Colors.transparent,
@@ -1281,9 +1302,10 @@ class _MapScreenState extends State<MapScreen> {
           level,
           textAlign: TextAlign.center,
           style: AppTheme.labelMedium.copyWith(
-            color: isSelected
-                ? AppTheme.primaryColor
-                : AppTheme.textSecondaryColor,
+            color:
+                isSelected
+                    ? AppTheme.primaryColor
+                    : AppTheme.textSecondaryColor,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
           ),
         ),

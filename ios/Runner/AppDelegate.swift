@@ -95,7 +95,8 @@ import AVFoundation
            let radius = args["radius"] as? Double,
            let name = args["name"] as? String {
           let ringtone = args["ringtone"] as? String ?? "alarm"
-          self.startGeofenceMonitoring(id: id, latitude: lat, longitude: lng, radius: radius, name: name, ringtone: ringtone)
+          let vibrationEnabled = args["vibrationEnabled"] as? Bool ?? true
+          self.startGeofenceMonitoring(id: id, latitude: lat, longitude: lng, radius: radius, name: name, ringtone: ringtone, vibrationEnabled: vibrationEnabled)
           result(true)
         } else {
           result(FlutterError(code: "INVALID_ARGS", message: "Invalid arguments", details: nil))
@@ -201,7 +202,7 @@ import AVFoundation
 
   // MARK: - Native iOS Geofencing
 
-  func startGeofenceMonitoring(id: String, latitude: Double, longitude: Double, radius: Double, name: String, ringtone: String = "alarm") {
+  func startGeofenceMonitoring(id: String, latitude: Double, longitude: Double, radius: Double, name: String, ringtone: String = "alarm", vibrationEnabled: Bool = true) {
     // First check authorization
     let authStatus: CLAuthorizationStatus
     if #available(iOS 14.0, *) {
@@ -225,6 +226,7 @@ import AVFoundation
     // Store alarm data in UserDefaults for background trigger
     UserDefaults.standard.set(name, forKey: "geofence_name_\(id)")
     UserDefaults.standard.set(ringtone, forKey: "geofence_ringtone_\(id)")
+    UserDefaults.standard.set(vibrationEnabled, forKey: "geofence_vibration_\(id)")
     UserDefaults.standard.set(true, forKey: "geofence_active_\(id)") // Mark as active
     UserDefaults.standard.synchronize()
 
@@ -253,6 +255,7 @@ import AVFoundation
     // Always clean up UserDefaults regardless of whether region is found
     UserDefaults.standard.removeObject(forKey: "geofence_name_\(id)")
     UserDefaults.standard.removeObject(forKey: "geofence_ringtone_\(id)")
+    UserDefaults.standard.removeObject(forKey: "geofence_vibration_\(id)")
     UserDefaults.standard.removeObject(forKey: "geofence_active_\(id)")
     UserDefaults.standard.synchronize()
 
@@ -284,6 +287,7 @@ import AVFoundation
       locationManager.stopMonitoring(for: region)
       UserDefaults.standard.removeObject(forKey: "geofence_name_\(region.identifier)")
       UserDefaults.standard.removeObject(forKey: "geofence_ringtone_\(region.identifier)")
+      UserDefaults.standard.removeObject(forKey: "geofence_vibration_\(region.identifier)")
       UserDefaults.standard.removeObject(forKey: "geofence_active_\(region.identifier)")
     }
     UserDefaults.standard.synchronize()
@@ -321,12 +325,14 @@ import AVFoundation
 
     let alarmName = UserDefaults.standard.string(forKey: "geofence_name_\(region.identifier)") ?? "Location Alarm"
     let ringtone = UserDefaults.standard.string(forKey: "geofence_ringtone_\(region.identifier)") ?? "alarm"
+    let vibrationEnabled = UserDefaults.standard.bool(forKey: "geofence_vibration_\(region.identifier)")
 
     // IMPORTANT: Start alarm sound IMMEDIATELY from native code
     // This works even when app is in background or screen is locked
     print("🔊 Starting alarm sound from native iOS (background-safe)")
     print("   - Ringtone: \(ringtone)")
-    playSystemSound(soundType: ringtone, loop: true)
+    print("   - Vibration enabled: \(vibrationEnabled)")
+    playSystemSound(soundType: ringtone, loop: true, vibrate: vibrationEnabled)
 
     // Show notification with critical alert (ONLY notification - Flutter won't show another)
     showGeofenceNotification(title: "⏰ \(alarmName)", body: "You have arrived at your destination!")
@@ -505,7 +511,7 @@ import AVFoundation
   // MARK: - iOS System Sounds (Background-safe)
 
   /// Play iOS system sound with looping - uses AVAudioPlayer for background support
-  func playSystemSound(soundType: String, loop: Bool) {
+  func playSystemSound(soundType: String, loop: Bool, vibrate: Bool = true) {
     print("🔊 Playing iOS alarm sound: \(soundType), loop: \(loop)")
     print("   App state: \(UIApplication.shared.applicationState.rawValue) (0=active, 1=inactive, 2=background)")
 
@@ -564,11 +570,16 @@ import AVFoundation
     }
 
     // Start continuous vibration loop (works in background with DispatchSourceTimer)
-    if loop {
-      startVibrationLoop()
+    // Only vibrate if vibration is enabled
+    if vibrate {
+      if loop {
+        startVibrationLoop()
+      } else {
+        // Single vibration
+        triggerVibration()
+      }
     } else {
-      // Single vibration
-      triggerVibration()
+      print("⚠️ Vibration is disabled - skipping vibration")
     }
   }
 

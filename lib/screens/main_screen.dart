@@ -1,9 +1,7 @@
-import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/alarm.dart';
 import '../models/tier.dart';
 import '../services/alarm_storage_service.dart';
@@ -18,7 +16,6 @@ import 'map_view_screen.dart';
 import 'settings_screen.dart';
 import 'map_screen.dart';
 import 'paywall_screen.dart';
-import 'auth_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({Key? key}) : super(key: key);
@@ -32,13 +29,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   List<Alarm> _alarms = [];
   bool _isLoading = true;
   GeofenceAlarmService? _geofenceService;
-  bool _hasAlwaysPermission = true; // Assume true initially
-  bool _permissionChecked = false;
 
   // Auth state
   final _authService = AuthService();
   StreamSubscription<User?>? _authStateSubscription;
   User? _currentUser;
+
+  // Controller for SettingsScreen to check unsaved changes
+  SettingsScreenController? _settingsController;
 
   @override
   void initState() {
@@ -46,36 +44,37 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     // Add lifecycle observer to detect when app resumes
     WidgetsBinding.instance.addObserver(this);
     _initializeAndLoadAlarms();
-    _checkLocationPermission();
     // Setup auth state listener
     _setupAuthStateListener();
-    // Request location permission on first launch
-    _requestInitialPermissionIfNeeded();
+    // Permissions are now requested during onboarding only
   }
 
   /// Setup authentication state listener
   void _setupAuthStateListener() {
     _currentUser = _authService.currentUser;
+    User? previousUser = _currentUser;
+
     _authStateSubscription = _authService.authStateChanges.listen((user) {
       if (!mounted) return;
+
+      // Only show messages if there was an actual state change (not initial load)
+      final bool isActualChange = previousUser != user;
 
       setState(() {
         _currentUser = user;
       });
 
-      if (user == null) {
-        // User signed out - show message
-        if (mounted) {
+      if (isActualChange && mounted) {
+        if (user == null && previousUser != null) {
+          // User signed out (was signed in, now not) - show message
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Signed out successfully'),
               duration: Duration(seconds: 2),
             ),
           );
-        }
-      } else {
-        // User signed in - show welcome
-        if (mounted) {
+        } else if (user != null && previousUser == null) {
+          // User signed in (was not signed in, now is) - show welcome
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Welcome back, ${user.email ?? "User"}!'),
@@ -84,230 +83,17 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           );
         }
       }
+
+      previousUser = user;
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    // When app resumes from background (e.g., returning from Settings)
-    // recheck location permission to update banner
+    // Lifecycle state changes are monitored but no automatic permission checks
     if (state == AppLifecycleState.resumed) {
-      debugPrint('📱 App resumed - rechecking location permission...');
-      _checkLocationPermission();
-    }
-  }
-
-  /// Request location permission on first app launch
-  Future<void> _requestInitialPermissionIfNeeded() async {
-    // Wait a bit for UI to load
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    final permission = await Geolocator.checkPermission();
-    debugPrint('📍 Initial permission check: $permission');
-
-    // If permission is not determined (first launch), request it immediately
-    if (permission == LocationPermission.denied) {
-      if (!mounted) return;
-
-      // Show welcome dialog explaining the permission
-      final shouldRequest = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.waving_hand, color: Colors.orange, size: 28),
-              SizedBox(width: 12),
-              Flexible(child: Text('Welcome to WakeMeUp!')),
-            ],
-          ),
-          content: const Text(
-            'WakeMeUp helps you wake up when you arrive at your destination.\n\n'
-            'To work properly, we need:\n\n'
-            '✓ Location access (Always)\n'
-            '✓ Background location tracking\n\n'
-            'Tap "Get Started" to grant location permission.',
-            style: TextStyle(height: 1.5),
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Get Started'),
-            ),
-          ],
-        ),
-      );
-
-      if (shouldRequest == true) {
-        // Request permissions
-        await LocationService.requestPermissionDetailed();
-        // Update permission status
-        await _checkLocationPermission();
-      }
-    }
-
-    // After location permission, show auth welcome dialog if not signed in
-    await _showAuthWelcomeIfNeeded();
-  }
-
-  /// Show auth welcome dialog on first launch if user is not signed in
-  Future<void> _showAuthWelcomeIfNeeded() async {
-    // Check if user is already signed in
-    if (_authService.isSignedIn) return;
-
-    // Check if we've shown the welcome dialog before
-    final prefs = await SharedPreferences.getInstance();
-    final hasSeenWelcome = prefs.getBool('auth_welcome_shown') ?? false;
-
-    if (hasSeenWelcome) return;
-
-    // Wait a bit for the location dialog to finish
-    await Future.delayed(const Duration(milliseconds: 500));
-
-    if (!mounted) return;
-
-    // Show auth welcome dialog
-    final action = await showDialog<String>(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.account_circle, color: Colors.blue, size: 28),
-            SizedBox(width: 12),
-            Flexible(child: Text('Sign In to Sync')),
-          ],
-        ),
-        content: const SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Create an account or sign in to:',
-                style: TextStyle(fontWeight: FontWeight.w600, height: 1.5),
-              ),
-              SizedBox(height: 12),
-              Row(
-                children: [
-                  Icon(Icons.cloud_sync, size: 20, color: Colors.blue),
-                  SizedBox(width: 12),
-                  Expanded(child: Text('Sync alarms across devices')),
-                ],
-              ),
-              SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(Icons.restore, size: 20, color: Colors.green),
-                  SizedBox(width: 12),
-                  Expanded(child: Text('Restore your subscriptions')),
-                ],
-              ),
-              SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(Icons.backup, size: 20, color: Colors.orange),
-                  SizedBox(width: 12),
-                  Expanded(child: Text('Backup your data')),
-                ],
-              ),
-              SizedBox(height: 16),
-              Text(
-                'You can always sign in later from Settings.',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, 'skip'),
-            child: const Text('Continue as Guest'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, 'signin'),
-            child: const Text('Sign In'),
-          ),
-        ],
-      ),
-    );
-
-    // Mark as shown regardless of choice
-    await prefs.setBool('auth_welcome_shown', true);
-
-    // Handle user choice
-    if (action == 'signin' && mounted) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const AuthScreen()),
-      );
-    }
-  }
-
-  /// Check if we have "Always" location permission (required for background geofencing)
-  Future<void> _checkLocationPermission() async {
-    if (!Platform.isIOS) {
-      // On Android, check for background permission differently
-      final hasBackground = await LocationService.hasBackgroundPermission();
-      if (mounted) {
-        setState(() {
-          _hasAlwaysPermission = hasBackground;
-          _permissionChecked = true;
-        });
-      }
-      return;
-    }
-
-    // On iOS, check for "Always" permission
-    final permission = await Geolocator.checkPermission();
-    debugPrint('📍 Current location permission: $permission');
-
-    if (mounted) {
-      setState(() {
-        _hasAlwaysPermission = permission == LocationPermission.always;
-        _permissionChecked = true;
-      });
-    }
-  }
-
-  /// Request "Always" location permission
-  Future<void> _requestAlwaysPermission() async {
-    final result = await LocationService.requestPermissionDetailed();
-    debugPrint('📍 Permission request result: $result');
-
-    // Re-check permission status
-    await _checkLocationPermission();
-
-    if (!_hasAlwaysPermission && mounted) {
-      // Still don't have permission - offer to open settings
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Background Location Required'),
-          content: const Text(
-            'For alarms to work when the app is closed or phone is locked, please:\n\n'
-            '1. Open Settings\n'
-            '2. Go to Privacy & Security > Location Services\n'
-            '3. Find WakeMeUp\n'
-            '4. Select "Always"\n\n'
-            'Without this, alarms will only work while the app is open.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Later'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                LocationService.openLocationSettings();
-              },
-              child: const Text('Open Settings'),
-            ),
-          ],
-        ),
-      );
+      debugPrint('📱 App resumed');
     }
   }
 
@@ -414,14 +200,39 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _onItemTapped(int index) => setState(() => _selectedIndex = index);
+  Future<void> _onItemTapped(int index) async {
+    // If trying to leave settings screen (index 2), check for unsaved changes
+    if (_selectedIndex == 2 && index != 2 && _settingsController != null) {
+      if (_settingsController!.hasUnsavedChanges()) {
+        // Show dialog and check if user wants to proceed
+        final canLeave = await _settingsController!.handleWillPop();
+        if (!canLeave) {
+          return; // User cancelled, stay on settings
+        }
+      }
+    }
+
+    // Navigation allowed, switch tab
+    setState(() => _selectedIndex = index);
+  }
 
   Future<void> _toggleAlarm(String id, bool active) async {
     final alarm = _alarms.firstWhere((a) => a.id == id);
     final previousState = alarm.isActive;
 
-    // If activating, check trip distance limit first
+    // If activating, enforce tier limits BEFORE making any changes
     if (active) {
+      // CRITICAL: Check active alarm count limit FIRST
+      final currentActiveCount = _alarms.where((a) => a.isActive && a.id != id).length;
+      final alarmCountError = await TierService.canActivateAlarm(currentActiveCount);
+      if (alarmCountError != null) {
+        // Show upgrade dialog for alarm count limit
+        if (!mounted) return;
+        await _showAlarmLimitDialog(alarmCountError);
+        return;
+      }
+
+      // Then check trip distance limit
       try {
         final currentPosition = await Geolocator.getCurrentPosition();
         final distanceKm = Geolocator.distanceBetween(
@@ -431,11 +242,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           alarm.longitude,
         ) / 1000;
 
-        final tierError = await TierService.canCreateAlarmAtDistance(distanceKm);
-        if (tierError != null) {
-          // Show upgrade dialog
+        final distanceError = await TierService.canCreateAlarmAtDistance(distanceKm);
+        if (distanceError != null) {
+          // Show upgrade dialog for distance limit
           if (!mounted) return;
-          await _showDistanceLimitDialog(tierError, distanceKm);
+          await _showDistanceLimitDialog(distanceError, distanceKm);
           return;
         }
       } catch (e) {
@@ -610,7 +421,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       }
     }
 
-    // Permission granted - proceed to create alarm
+    // Permission granted - now check tier limits
+    // debugPrint('🔄 MainScreen: Checking tier limits before creating alarm...');
+
+    // CRITICAL: Check if user can create another active alarm
+    final currentActiveCount = _alarms.where((a) => a.isActive).length;
+    final alarmCountError = await TierService.canActivateAlarm(currentActiveCount);
+    if (alarmCountError != null) {
+      if (!mounted) return;
+      await _showAlarmLimitDialog(alarmCountError);
+      return; // Block alarm creation
+    }
+
+    // Tier limits passed - proceed to create alarm
     debugPrint('🔄 MainScreen: Navigating to add alarm...');
 
     if (!mounted) return;
@@ -696,6 +519,79 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               LocationService.openLocationSettings();
             },
             child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show alarm count limit dialog
+  Future<void> _showAlarmLimitDialog(String message) async {
+    final currentTier = await TierService.getCurrentTier();
+    final limits = await TierService.getTierLimits();
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.lock, color: Theme.of(context).primaryColor, size: 28),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('Active Alarm Limit')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(message),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.alarm, size: 18, color: Colors.orange),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Current Plan: ${currentTier.displayName}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Active Alarms: ${limits.formattedAlarmLimit}',
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const PaywallScreen(),
+                ),
+              );
+            },
+            child: const Text('Upgrade Plan'),
           ),
         ],
       ),
@@ -796,19 +692,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         onRefreshNeeded: _loadAlarms, // Reload alarms when edit completes
       ),
       MapViewScreen(alarms: _alarms),
-      SettingsScreen(onSettingsApplied: _loadAlarms),
+      SettingsScreen(
+        onSettingsApplied: _loadAlarms,
+        onControllerCreated: (controller) {
+          _settingsController = controller;
+        },
+      ),
     ];
 
     return Scaffold(
-      body: Column(
-        children: [
-          // Show permission warning banner if needed
-          if (_permissionChecked && !_hasAlwaysPermission)
-            _buildPermissionWarningBanner(),
-          // Main content
-          Expanded(child: screens[_selectedIndex]),
-        ],
-      ),
+      body: screens[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         items: const [
           BottomNavigationBarItem(
@@ -823,57 +716,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         ],
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
-      ),
-    );
-  }
-
-
-  /// Build a warning banner for missing "Always" location permission
-  Widget _buildPermissionWarningBanner() {
-    return Material(
-      color: Colors.orange.shade700,
-      child: SafeArea(
-        bottom: false,
-        child: InkWell(
-          onTap: _requestAlwaysPermission,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                const Icon(Icons.warning_amber_rounded, color: Colors.white),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        Platform.isIOS
-                            ? 'Background Location Required'
-                            : 'Background Permission Required',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        Platform.isIOS
-                            ? 'Tap to enable "Always" for alarms to work when locked'
-                            : 'Tap to enable for alarms to work in background',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right, color: Colors.white70),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

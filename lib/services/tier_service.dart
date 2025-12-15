@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/tier.dart';
 import 'subscription_service.dart';
@@ -13,14 +12,14 @@ class TierService {
     try {
       // Try to get tier from RevenueCat (source of truth)
       final tier = await _subscriptionService.refreshSubscriptionStatus();
-      debugPrint('🎫 Current tier from RevenueCat: ${tier.name}');
+      // debugPrint('🎫 Current tier from RevenueCat: ${tier.name}');
 
       // Cache it locally for offline access
       await _cacheTier(tier);
       return tier;
     } catch (e) {
       // Fallback to cached tier if RevenueCat is unavailable
-      debugPrint('⚠️ Failed to get tier from RevenueCat, using cached value: $e');
+      // debugPrint('⚠️ Failed to get tier from RevenueCat, using cached value: $e');
       return await _getCachedTier();
     }
   }
@@ -30,7 +29,7 @@ class TierService {
     final prefs = await SharedPreferences.getInstance();
     final tierIndex = prefs.getInt(_tierKey) ?? 0; // 0 = free
     final tier = Tier.values[tierIndex];
-    debugPrint('🎫 Cached tier: ${tier.name} (index: $tierIndex)');
+    // debugPrint('🎫 Cached tier: ${tier.name} (index: $tierIndex)');
     return tier;
   }
 
@@ -59,26 +58,26 @@ class TierService {
     final currentTier = await getCurrentTier();
     final limits = await getTierLimits();
 
-    debugPrint('🎫 Checking distance limit: ${distanceKm.toStringAsFixed(1)}km');
-    debugPrint('   Current tier: ${currentTier.displayName}');
-    debugPrint('   Max distance: ${limits.formattedTripDistance}');
+    // debugPrint('🎫 Checking distance limit: ${distanceKm.toStringAsFixed(1)}km');
+    // debugPrint('   Current tier: ${currentTier.displayName}');
+    // debugPrint('   Max distance: ${limits.formattedTripDistance}');
 
     if (limits.hasUnlimitedDistance) {
-      debugPrint('   ✅ Unlimited distance (Pro tier)');
+      // debugPrint('   ✅ Unlimited distance (Pro tier)');
       return null; // Pro tier - unlimited distance
     }
 
     if (distanceKm > limits.maxTripDistanceKm) {
       final requiredTier = _getRequiredTierForDistance(distanceKm);
 
-      debugPrint('   ❌ Distance exceeds limit! Required: ${requiredTier.displayName}');
+      // debugPrint('   ❌ Distance exceeds limit! Required: ${requiredTier.displayName}');
 
       return 'This location is ${distanceKm.toStringAsFixed(1)}km away. '
           'Your ${currentTier.displayName} plan allows up to ${limits.formattedTripDistance}. '
           'Upgrade to ${requiredTier.displayName} (${requiredTier.price}) for longer trips.';
     }
 
-    debugPrint('   ✅ Distance within limit');
+    // debugPrint('   ✅ Distance within limit');
     return null; // Within limits
   }
 

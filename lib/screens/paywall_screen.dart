@@ -420,11 +420,7 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
             child: Column(
               children: [
                 TextButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Restore purchases - coming soon')),
-                    );
-                  },
+                  onPressed: _restorePurchases,
                   child: const Text('Restore Purchases'),
                 ),
                 const SizedBox(height: 8),
@@ -465,11 +461,11 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
   }
 
   Future<void> _selectPlan(Tier tier) async {
-    debugPrint('🔐 _selectPlan called for tier: ${tier.displayName}');
+    // debugPrint('🔐 _selectPlan called for tier: ${tier.displayName}');
 
     // Free tier - guide user to cancel subscription through platform settings
     if (tier == Tier.free) {
-      debugPrint('✅ Free tier selected');
+      // debugPrint('✅ Free tier selected');
 
       // If user currently has a paid subscription, show cancellation guide
       if (_currentTier != Tier.free) {
@@ -616,6 +612,9 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
 
   /// Show guide for canceling subscription with deep link
   Future<void> _showCancellationGuide() async {
+    // Try to get the management URL from RevenueCat first
+    final managementURL = await _subscriptionService.getManagementURL();
+
     if (!mounted) return;
 
     showDialog(
@@ -633,7 +632,7 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Tap the button below to open your subscription settings:',
+              'To cancel your subscription, please manage it through your App Store account.',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
@@ -644,31 +643,37 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
           ],
         ),
         actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           TextButton.icon(
             onPressed: () async {
               Navigator.pop(context);
               try {
-                final url = Uri.parse('https://apps.apple.com/account/subscriptions');
+                // Try RevenueCat management URL first, fall back to Apple's subscription page
+                final url = managementURL != null
+                    ? Uri.parse(managementURL)
+                    : Uri.parse('https://apps.apple.com/account/subscriptions');
+
                 if (await canLaunchUrl(url)) {
                   await launchUrl(url, mode: LaunchMode.externalApplication);
+                } else {
+                  throw 'Could not launch URL';
                 }
               } catch (e) {
                 debugPrint('Failed to open subscription management: $e');
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Please manage your subscription through iOS Settings → Subscriptions'),
+                      content: Text('Please manage your subscription through Settings → App Store → Subscriptions'),
                     ),
                   );
                 }
               }
             },
             icon: const Icon(Icons.open_in_new),
-            label: const Text('Open Subscription Settings'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            label: const Text('Manage Subscription'),
           ),
         ],
       ),
@@ -795,5 +800,82 @@ class _PaywallScreenState extends State<PaywallScreen> with SingleTickerProvider
         ],
       ),
     );
+  }
+
+  /// Restore previous purchases
+  Future<void> _restorePurchases() async {
+    try {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Restoring purchases...'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Attempt restore
+      final success = await _subscriptionService.restorePurchases();
+
+      if (!mounted) return;
+
+      // Close loading dialog
+      Navigator.pop(context);
+
+      if (success) {
+        // Refresh tier status
+        final newTier = await TierService.getCurrentTier();
+
+        if (!mounted) return;
+
+        setState(() {
+          _currentTier = newTier;
+        });
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Purchases restored! You are now on ${newTier.displayName} plan.'),
+            backgroundColor: AppTheme.accentGreen,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      } else {
+        // No purchases found
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No previous purchases found.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      // Close loading dialog if still open
+      Navigator.pop(context);
+
+      // Show error
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to restore purchases: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 }

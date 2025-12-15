@@ -38,7 +38,7 @@ class HelpScreen extends StatelessWidget {
 
           // Quick Start
           _buildSection(
-            title: '🚀 Quick Start',
+            title: 'Quick Start',
             items: [
               _HelpItem(
                 icon: Icons.location_on,
@@ -50,7 +50,7 @@ class HelpScreen extends StatelessWidget {
                 icon: Icons.notifications,
                 title: '2. Create an Alarm',
                 description:
-                    'Set how far before arrival you want to be notified. Choose a radius between 100m and 5km.',
+                    'Set how far before arrival you want to be notified. Choose a radius between 1km and 10km.',
               ),
               _HelpItem(
                 icon: Icons.play_arrow,
@@ -71,19 +71,19 @@ class HelpScreen extends StatelessWidget {
 
           // Tips
           _buildSection(
-            title: '💡 Pro Tips',
+            title: 'Tips & Best Practices',
             items: [
               _HelpItem(
                 icon: Icons.battery_charging_full,
                 title: 'Battery Optimization',
                 description:
-                    'WakeMeUp uses smart location tracking to preserve battery while ensuring accurate alerts.',
+                    'WakeMeUp uses smart location tracking to preserve battery while ensuring accurate alerts. Disable alarms when not needed to save battery.',
               ),
               _HelpItem(
                 icon: Icons.volume_up,
-                title: 'Custom Sounds',
+                title: 'Alarm Volume',
                 description:
-                    'Choose from built-in sounds or upload your own to personalize your alerts.',
+                    'Alarms use your phone\'s volume settings. Ensure your phone is not on silent mode to hear the alarm.',
               ),
               _HelpItem(
                 icon: Icons.edit,
@@ -104,7 +104,7 @@ class HelpScreen extends StatelessWidget {
 
           // Battery & Multiple Alarms
           _buildSection(
-            title: '🔋 Multiple Alarms & Battery',
+            title: 'Multiple Alarms & Battery',
             items: [
               _HelpItem(
                 icon: Icons.battery_alert,
@@ -120,15 +120,15 @@ class HelpScreen extends StatelessWidget {
               ),
               _HelpItem(
                 icon: Icons.gps_fixed,
-                title: 'Location Updates',
+                title: 'Location Tracking',
                 description:
-                    'Active alarms check your GPS location every 10 seconds to ensure accurate notifications.',
+                    'Active alarms use background geofencing to monitor your location efficiently while minimizing battery drain.',
               ),
               _HelpItem(
                 icon: Icons.workspace_premium,
-                title: 'Plan Limits',
+                title: 'Subscription Plans',
                 description:
-                    'Free: 1 alarm, Commuter: 5 alarms, Pro: Unlimited alarms. Upgrade in Settings to increase your limit.',
+                    'Free: 1 alarm (20km max), Commuter: 5 alarms (50km max), Pro: Unlimited alarms & distance. Upgrade in Settings for more features.',
               ),
             ],
           ),
@@ -137,13 +137,13 @@ class HelpScreen extends StatelessWidget {
 
           // Permissions
           _buildSection(
-            title: '🔐 Permissions Required',
+            title: 'Required Permissions',
             items: [
               _HelpItem(
                 icon: Icons.location_on,
                 title: 'Location (Always)',
                 description:
-                    'Required to track your location in the background and trigger alarms when you arrive.',
+                    'Required to track your location in the background and trigger alarms when you arrive at your destination.',
               ),
               _HelpItem(
                 icon: Icons.notifications,
@@ -158,24 +158,24 @@ class HelpScreen extends StatelessWidget {
 
           // Subscription Info
           _buildSection(
-            title: '⭐ Upgrade Your Experience',
+            title: 'Subscription Plans',
             items: [
               _HelpItem(
                 icon: Icons.free_breakfast,
                 title: 'Free Plan',
-                description: '1 active alarm, 20km max distance',
+                description: '1 active alarm, 20km max trip distance. Perfect for short trips.',
               ),
               _HelpItem(
                 icon: Icons.commute,
-                title: 'Commuter Plan (\$0.99/mo)',
+                title: 'Commuter Plan',
                 description:
-                    '5 active alarms, 50km range, custom ringtones, high-accuracy GPS',
+                    '5 active alarms, 50km max trip distance, custom ringtones. Ideal for daily commuters.',
               ),
               _HelpItem(
                 icon: Icons.star,
-                title: 'Pro Plan (\$1.99/mo)',
+                title: 'Pro Plan',
                 description:
-                    'Unlimited alarms, unlimited distance, all features, priority support',
+                    'Unlimited alarms, unlimited trip distance, all features. For power users.',
               ),
             ],
           ),
@@ -183,30 +183,40 @@ class HelpScreen extends StatelessWidget {
           const SizedBox(height: AppTheme.paddingLarge),
 
           // Support
-          const Card(
+          Card(
             color: AppTheme.cardColor,
             child: Padding(
-              padding: EdgeInsets.all(AppTheme.paddingLarge),
+              padding: const EdgeInsets.all(AppTheme.paddingLarge),
               child: Column(
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.contact_support,
                     size: 48,
                     color: AppTheme.primaryColor,
                   ),
-                  SizedBox(height: AppTheme.paddingMedium),
-                  Text(
-                    'Need More Help?',
+                  const SizedBox(height: AppTheme.paddingMedium),
+                  const Text(
+                    'Need Help?',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  SizedBox(height: AppTheme.paddingSmall),
-                  Text(
-                    'Visit Settings → About for contact information and support options.',
+                  const SizedBox(height: AppTheme.paddingSmall),
+                  const Text(
+                    'For support and inquiries, contact us at:',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: AppTheme.paddingSmall),
+                  const SelectableText(
+                    'anupama.dilshan@icloud.com',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppTheme.primaryColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
                   ),
                 ],
               ),

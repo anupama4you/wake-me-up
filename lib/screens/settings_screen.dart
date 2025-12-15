@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
 import '../services/geofence_service.dart';
@@ -15,23 +14,40 @@ import '../models/tier.dart';
 import 'paywall_screen.dart';
 import 'auth_screen.dart';
 import 'help_screen.dart';
+import 'privacy_policy_screen.dart';
+import 'terms_of_service_screen.dart';
+
+/// Interface for checking unsaved changes from outside
+abstract class SettingsScreenController {
+  bool hasUnsavedChanges();
+  Future<bool> handleWillPop();
+}
 
 class SettingsScreen extends StatefulWidget {
   final VoidCallback? onSettingsApplied;
+  final void Function(SettingsScreenController)? onControllerCreated;
 
-  const SettingsScreen({Key? key, this.onSettingsApplied}) : super(key: key);
+  const SettingsScreen({Key? key, this.onSettingsApplied, this.onControllerCreated}) : super(key: key);
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen> implements SettingsScreenController {
   double _defaultRadius = 500.0;
   String _defaultSoundLevel = 'Loud';
   AlarmRingtone _defaultRingtone = AlarmRingtone.alarm;
   bool _vibration = true;
   bool _highAccuracy = true;
   int _updateInterval = 10;
+
+  // Track original values to detect changes
+  double _originalRadius = 500.0;
+  String _originalSoundLevel = 'Loud';
+  AlarmRingtone _originalRingtone = AlarmRingtone.alarm;
+  bool _originalVibration = true;
+  bool _originalHighAccuracy = true;
+  int _originalUpdateInterval = 10;
 
   Tier _currentTier = Tier.free;
   TierLimits? _tierLimits;
@@ -40,11 +56,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _subscriptionService = SubscriptionService();
   StreamSubscription<Tier>? _subscriptionStreamListener;
 
+  bool get _hasUnsavedChanges {
+    return _defaultRadius != _originalRadius ||
+        _defaultSoundLevel != _originalSoundLevel ||
+        _defaultRingtone != _originalRingtone ||
+        _vibration != _originalVibration ||
+        _highAccuracy != _originalHighAccuracy ||
+        _updateInterval != _originalUpdateInterval;
+  }
+
   @override
   void initState() {
     super.initState();
     _loadSettings();
     _listenToSubscriptionChanges();
+    // Notify parent that controller is ready
+    widget.onControllerCreated?.call(this);
   }
 
   @override
@@ -67,35 +94,116 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// Load tier limits separately
   Future<void> _loadTierLimits() async {
     final limits = await TierService.getTierLimits();
-    setState(() {
-      _tierLimits = limits;
-    });
+    if (mounted) {
+      setState(() {
+        _tierLimits = limits;
+      });
+    }
   }
 
   Future<void> _loadSettings() async {
     final tier = await TierService.getCurrentTier();
     final limits = await TierService.getTierLimits();
 
-    setState(() {
-      _defaultRadius = SettingsService.defaultRadius;
-      _defaultSoundLevel = SettingsService.defaultSoundLevel;
-      _defaultRingtone = AlarmRingtone.fromString(SettingsService.defaultRingtone);
-      _vibration = SettingsService.vibrationEnabled;
-      _highAccuracy = SettingsService.highAccuracy;
-      _updateInterval = SettingsService.updateInterval;
-      _currentTier = tier;
-      _tierLimits = limits;
-    });
+    if (mounted) {
+      setState(() {
+        // Clamp default radius to valid range (1km - 10km)
+        _defaultRadius = SettingsService.defaultRadius.clamp(1000.0, 10000.0);
+        _defaultSoundLevel = SettingsService.defaultSoundLevel;
+        _defaultRingtone = AlarmRingtone.fromString(SettingsService.defaultRingtone);
+        _vibration = SettingsService.vibrationEnabled;
+        _highAccuracy = SettingsService.highAccuracy;
+        _updateInterval = SettingsService.updateInterval;
+        _currentTier = tier;
+        _tierLimits = limits;
+
+        // Save original values
+        _originalRadius = _defaultRadius;
+        _originalSoundLevel = _defaultSoundLevel;
+        _originalRingtone = _defaultRingtone;
+        _originalVibration = _vibration;
+        _originalHighAccuracy = _highAccuracy;
+        _originalUpdateInterval = _updateInterval;
+      });
+
+      // If the clamped value is different, save it to persist the correction
+      if (_defaultRadius != SettingsService.defaultRadius) {
+        SettingsService.setDefaultRadius(_defaultRadius);
+      }
+    }
+  }
+
+  @override
+  bool hasUnsavedChanges() => _hasUnsavedChanges;
+
+  @override
+  Future<bool> handleWillPop() async {
+    if (!_hasUnsavedChanges) return true;
+
+    final action = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unsaved Changes'),
+        content: const Text(
+          'You have unsaved changes. Would you like to save them before leaving?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'discard'),
+            child: const Text('Discard'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'cancel'),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'save'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primaryColor,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (action == 'save') {
+      await _saveAllSettings();
+      return true; // Allow navigation
+    } else if (action == 'discard') {
+      return true; // Allow navigation
+    } else {
+      return false; // Cancel - block navigation
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings', style: TextStyle(color: AppTheme.textOnPrimaryColor)),
-        backgroundColor: AppTheme.primaryColor,
-      ),
-      body: Container(
+    return PopScope(
+      canPop: !_hasUnsavedChanges,
+      onPopInvokedWithResult: (bool didPop, dynamic result) async {
+        if (didPop) return;
+        if (_hasUnsavedChanges) {
+          await _handleBackNavigation();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Settings', style: TextStyle(color: AppTheme.textOnPrimaryColor)),
+          backgroundColor: AppTheme.primaryColor,
+          actions: [
+            if (_hasUnsavedChanges)
+              TextButton.icon(
+                onPressed: _saveAllSettings,
+                icon: const Icon(Icons.save, color: Colors.white, size: 20),
+                label: const Text(
+                  'Save',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
+          ],
+        ),
+        body: Container(
         color: AppTheme.backgroundColor,
         child: ListView(
           padding: const EdgeInsets.all(16),
@@ -113,19 +221,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSettingRow(
                 'Default Radius',
                 trailing: Text(
-                  '${_defaultRadius.toInt()}m',
+                  '${(_defaultRadius / 1000).toInt()}km',
                   style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor),
                 ),
                 onTap: () => _showRadiusPicker(),
-              ),
-              const Divider(height: 1),
-              _buildSettingRow(
-                'Default Volume',
-                trailing: Text(
-                  _defaultSoundLevel,
-                  style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor),
-                ),
-                onTap: () => _showSoundLevelPicker(),
               ),
               const Divider(height: 1),
               _buildSettingRow(
@@ -142,56 +241,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: Switch(
                   value: _vibration,
                   activeTrackColor: AppTheme.primaryColor,
-                  onChanged: (v) async {
+                  onChanged: (v) {
                     setState(() => _vibration = v);
-                    await SettingsService.setVibrationEnabled(v);
                   },
                 ),
-              ),
-            ]),
-            const SizedBox(height: 16),
-            // Apply to All Alarms button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _applySettingsToAllAlarms,
-                icon: const Icon(Icons.sync, size: 20),
-                label: const Text('Apply Settings to All Alarms'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primaryColor,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            _buildSectionTitle('GPS SETTINGS'),
-            _buildSettingsCard([
-              _buildSettingRow(
-                'High Accuracy Mode',
-                subtitle: 'Uses more battery for better location tracking',
-                trailing: Switch(
-                  value: _highAccuracy,
-                  activeTrackColor: AppTheme.primaryColor,
-                  onChanged: (v) async {
-                    setState(() => _highAccuracy = v);
-                    await SettingsService.setHighAccuracy(v);
-                    // Reload geofence settings with new accuracy
-                    await _reloadGeofenceSettings();
-                  },
-                ),
-              ),
-              const Divider(height: 1),
-              _buildSettingRow(
-                'Update Interval',
-                trailing: Text(
-                  '$_updateInterval sec',
-                  style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor),
-                ),
-                onTap: () => _showUpdateIntervalPicker(),
               ),
             ]),
             const SizedBox(height: 24),
@@ -211,12 +264,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   trailing:
                   Text('1.0.0', style: AppTheme.bodyMedium.copyWith(color: AppTheme.textSecondaryColor))),
               const Divider(height: 1),
-              _buildSettingRow('Privacy Policy'),
+              _buildSettingRow(
+                'Privacy Policy',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const PrivacyPolicyScreen()),
+                  );
+                },
+              ),
               const Divider(height: 1),
-              _buildSettingRow('Terms of Service'),
+              _buildSettingRow(
+                'Terms of Service',
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const TermsOfServiceScreen()),
+                  );
+                },
+              ),
             ]),
           ],
         ),
+      ),
       ),
     );
   }
@@ -455,7 +525,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
               OutlinedButton(
-                onPressed: () => _showPlanOptions(),
+                onPressed: () async {
+                  // Navigate directly to paywall screen
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const PaywallScreen(),
+                    ),
+                  );
+                  // Reload settings after returning from paywall
+                  _loadSettings();
+                },
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white,
                   side: const BorderSide(color: Colors.white, width: 2),
@@ -557,33 +637,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (result != null) {
       setState(() => _defaultRadius = result);
-      await SettingsService.setDefaultRadius(result);
-    }
-  }
-
-  Future<void> _showSoundLevelPicker() async {
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => _SoundLevelPickerDialog(initialValue: _defaultSoundLevel),
-    );
-
-    if (result != null) {
-      setState(() => _defaultSoundLevel = result);
-      await SettingsService.setDefaultSoundLevel(result);
-    }
-  }
-
-  Future<void> _showUpdateIntervalPicker() async {
-    final result = await showDialog<int>(
-      context: context,
-      builder: (context) => _UpdateIntervalPickerDialog(initialValue: _updateInterval),
-    );
-
-    if (result != null) {
-      setState(() => _updateInterval = result);
-      await SettingsService.setUpdateInterval(result);
-      // Reload geofence settings with new interval
-      await _reloadGeofenceSettings();
+      // Don't save immediately - wait for user to click Save button
     }
   }
 
@@ -595,7 +649,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (result != null) {
       setState(() => _defaultRingtone = result);
-      await SettingsService.setDefaultRingtone(result.name);
+      // Don't save immediately - wait for user to click Save button
     }
   }
 
@@ -663,92 +717,123 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// Apply current settings to all existing alarms
-  Future<void> _applySettingsToAllAlarms() async {
-    // Show confirmation dialog
-    final confirmed = await showDialog<bool>(
+  /// Handle back navigation with unsaved changes check
+  Future<void> _handleBackNavigation() async {
+    if (!_hasUnsavedChanges) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    final action = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Apply to All Alarms?'),
-        content: Text(
-          'This will update all existing alarms with:\n\n'
-          '• Radius: ${_defaultRadius.toInt()}m\n'
-          '• Volume: $_defaultSoundLevel\n'
-          '• Ringtone: ${_defaultRingtone.displayName}\n\n'
-          'Active alarms will be restarted with new settings.',
+        title: const Text('Unsaved Changes'),
+        content: const Text(
+          'You have unsaved changes. Would you like to save them before leaving?',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.pop(context, 'discard'),
+            child: const Text('Discard'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'cancel'),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(context, 'save'),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.primaryColor,
             ),
-            child: const Text('Apply'),
+            child: const Text('Save'),
           ),
         ],
       ),
     );
 
-    if (confirmed != true) return;
+    if (!mounted) return;
 
+    if (action == 'save') {
+      await _saveAllSettings();
+      if (mounted) Navigator.of(context).pop();
+    } else if (action == 'discard') {
+      Navigator.of(context).pop();
+    }
+    // 'cancel' does nothing - stays on page
+  }
+
+  /// Save all settings and apply to existing alarms
+  Future<void> _saveAllSettings() async {
     try {
+      // Save settings to preferences
+      await SettingsService.setDefaultRadius(_defaultRadius);
+      await SettingsService.setDefaultSoundLevel(_defaultSoundLevel);
+      await SettingsService.setDefaultRingtone(_defaultRingtone.name);
+      await SettingsService.setVibrationEnabled(_vibration);
+      await SettingsService.setHighAccuracy(_highAccuracy);
+      await SettingsService.setUpdateInterval(_updateInterval);
+
+      // Reload geofence settings if GPS settings changed
+      if (_highAccuracy != _originalHighAccuracy || _updateInterval != _originalUpdateInterval) {
+        await _reloadGeofenceSettings();
+      }
+
       // Get all alarms
       final alarms = AlarmStorageService.getAllAlarms();
-      if (alarms.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No alarms to update')),
+      if (alarms.isNotEmpty) {
+        final geofenceService = GeofenceAlarmService();
+        int updatedCount = 0;
+
+        for (final alarm in alarms) {
+          // Create updated alarm with new settings using copyWith
+          final updatedAlarm = alarm.copyWith(
+            radius: _defaultRadius,
+            soundLevel: _defaultSoundLevel,
+            ringtone: _defaultRingtone.name,
           );
-        }
-        return;
-      }
 
-      final geofenceService = GeofenceAlarmService();
-      int updatedCount = 0;
+          // Save updated alarm
+          await AlarmStorageService.updateAlarm(updatedAlarm);
 
-      for (final alarm in alarms) {
-        // Create updated alarm with new settings using copyWith
-        final updatedAlarm = alarm.copyWith(
-          radius: _defaultRadius,
-          soundLevel: _defaultSoundLevel,
-          ringtone: _defaultRingtone.name,
-        );
+          // If alarm is active, restart geofencing with new settings
+          if (updatedAlarm.isActive) {
+            await geofenceService.stopGeofencing(updatedAlarm.id);
+            await geofenceService.startGeofencing(updatedAlarm);
+          }
 
-        // Save updated alarm
-        await AlarmStorageService.updateAlarm(updatedAlarm);
-
-        // If alarm is active, restart geofencing with new settings
-        if (updatedAlarm.isActive) {
-          await geofenceService.stopGeofencing(updatedAlarm.id);
-          await geofenceService.startGeofencing(updatedAlarm);
+          updatedCount++;
         }
 
-        updatedCount++;
+        debugPrint('✅ Updated $updatedCount alarms with new settings');
       }
 
-      debugPrint('✅ Updated $updatedCount alarms with new settings');
+      // Update original values to match current
+      setState(() {
+        _originalRadius = _defaultRadius;
+        _originalSoundLevel = _defaultSoundLevel;
+        _originalRingtone = _defaultRingtone;
+        _originalVibration = _vibration;
+        _originalHighAccuracy = _highAccuracy;
+        _originalUpdateInterval = _updateInterval;
+      });
 
       // Notify parent to refresh the home screen
       widget.onSettingsApplied?.call();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Updated $updatedCount alarm${updatedCount != 1 ? 's' : ''} with new settings'),
+          const SnackBar(
+            content: Text('Settings saved and applied to all alarms'),
             backgroundColor: AppTheme.accentGreen,
           ),
         );
       }
     } catch (e) {
-      debugPrint('❌ Error applying settings to alarms: $e');
+      debugPrint('❌ Error saving settings: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error updating alarms: $e'),
+            content: Text('Error saving settings: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -756,98 +841,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// Show plan options (change plan or cancel subscription)
-  Future<void> _showPlanOptions() async {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text(
-                'Plan Options',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.swap_horiz, color: AppTheme.primaryColor),
-              title: const Text('View All Plans'),
-              subtitle: const Text('Upgrade, downgrade, or compare plans'),
-              onTap: () async {
-                Navigator.pop(context);
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const PaywallScreen(),
-                  ),
-                );
-                _loadSettings();
-              },
-            ),
-            if (_currentTier != Tier.free) ...[
-              const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.cancel, color: Colors.red),
-                title: const Text('Cancel Subscription'),
-                subtitle: const Text('Manage or cancel your subscription'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _manageSubscription();
-                },
-              ),
-            ],
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Open subscription management page via deep link
-  Future<void> _manageSubscription() async {
-    try {
-      // Try to open App Store subscriptions page directly
-      final url = Uri.parse('https://apps.apple.com/account/subscriptions');
-
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-      } else {
-        // Fallback: Show instructions if deep link fails
-        if (!mounted) return;
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Manage Subscription'),
-            content: const Text(
-              'To manage your subscription (cancel, change plan, etc.), '
-              'go to your device\'s subscription settings:\n\n'
-              '• iOS: Settings → [Your Name] → Subscriptions\n'
-              '• Android: Play Store → Menu → Subscriptions',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Failed to open subscription management: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please manage your subscription through iOS Settings → Subscriptions'),
-        ),
-      );
-    }
-  }
 
   /// Navigate to sign in screen
   Future<void> _navigateToSignIn() async {
@@ -1171,21 +1164,21 @@ class _RadiusPickerDialogState extends State<_RadiusPickerDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '${_value.toInt()}m',
+            '${(_value / 1000).toInt()}km',
             style: AppTheme.headingLarge.copyWith(color: AppTheme.primaryColor),
           ),
           Slider(
             value: _value,
-            min: 100,
-            max: 5000,
-            divisions: 49,
+            min: 1000,
+            max: 10000,
+            divisions: 9,
             onChanged: (v) => setState(() => _value = v),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('100m', style: AppTheme.caption),
-              Text('5km', style: AppTheme.caption),
+              Text('1km', style: AppTheme.caption),
+              Text('10km', style: AppTheme.caption),
             ],
           ),
         ],
@@ -1205,69 +1198,6 @@ class _RadiusPickerDialogState extends State<_RadiusPickerDialog> {
 }
 
 // Sound Level Picker Dialog
-class _SoundLevelPickerDialog extends StatelessWidget {
-  final String initialValue;
-
-  const _SoundLevelPickerDialog({required this.initialValue});
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Default Alarm Sound'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildOption(context, 'Loud'),
-          _buildOption(context, 'Medium'),
-          _buildOption(context, 'Soft'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOption(BuildContext context, String level) {
-    final isSelected = level == initialValue;
-    return ListTile(
-      title: Text(level),
-      trailing: isSelected ? const Icon(Icons.check, color: AppTheme.primaryColor) : null,
-      onTap: () => Navigator.pop(context, level),
-    );
-  }
-}
-
-// Update Interval Picker Dialog
-class _UpdateIntervalPickerDialog extends StatelessWidget {
-  final int initialValue;
-
-  const _UpdateIntervalPickerDialog({required this.initialValue});
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Update Interval'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildOption(context, 5, '5 seconds'),
-          _buildOption(context, 10, '10 seconds (Recommended)'),
-          _buildOption(context, 15, '15 seconds'),
-          _buildOption(context, 30, '30 seconds'),
-          _buildOption(context, 60, '1 minute'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOption(BuildContext context, int seconds, String label) {
-    final isSelected = seconds == initialValue;
-    return ListTile(
-      title: Text(label),
-      trailing: isSelected ? const Icon(Icons.check, color: AppTheme.primaryColor) : null,
-      onTap: () => Navigator.pop(context, seconds),
-    );
-  }
-}
-
 // Change Plan Dialog
 class _ChangePlanDialog extends StatelessWidget {
   final Tier currentTier;

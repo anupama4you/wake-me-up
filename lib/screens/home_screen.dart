@@ -14,6 +14,7 @@ import 'map_screen.dart';
 import 'alarm_detail_map_screen.dart';
 import 'auth_screen.dart';
 import 'help_screen.dart';
+import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final List<Alarm> alarms;
@@ -41,8 +42,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isAppInForeground = true;
   List<HealthIssue> _healthIssues = [];
   bool _healthCheckDone = false;
-  Tier _currentTier = Tier.free;
   bool _showWelcomeBanner = false;
+  Tier _currentTier = Tier.free;
 
   @override
   void initState() {
@@ -51,17 +52,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _startLocationTrackingIfNeeded();
     // Get immediate location if there are active alarms
     if (widget.alarms.any((alarm) => alarm.isActive)) {
-      debugPrint('📍 Active alarms detected on init - getting immediate location');
+      debugPrint(
+        '📍 Active alarms detected on init - getting immediate location',
+      );
       _updateCurrentLocation();
     }
     _checkAppHealth();
-    _loadCurrentTier();
     _checkWelcomeBanner();
+    _loadCurrentTier();
   }
 
   /// Check if we should show welcome banner for new users
   Future<void> _checkWelcomeBanner() async {
-    final hasCreatedFirstAlarm = await FirstTimeSetupService.hasCreatedFirstAlarm();
+    final hasCreatedFirstAlarm =
+        await FirstTimeSetupService.hasCreatedFirstAlarm();
     final hasAlarms = widget.alarms.isNotEmpty;
 
     if (mounted) {
@@ -86,24 +90,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     // Check if any alarm's active status changed
     bool hasActiveStatusChange = false;
     for (final alarm in widget.alarms) {
-      final oldAlarm = oldWidget.alarms.where((old) => old.id == alarm.id).firstOrNull;
+      final oldAlarm =
+          oldWidget.alarms.where((old) => old.id == alarm.id).firstOrNull;
       if (oldAlarm != null && oldAlarm.isActive != alarm.isActive) {
         hasActiveStatusChange = true;
-        debugPrint('📍 Alarm ${alarm.id} status changed: ${oldAlarm.isActive} → ${alarm.isActive}');
+        debugPrint(
+          '📍 Alarm ${alarm.id} status changed: ${oldAlarm.isActive} → ${alarm.isActive}',
+        );
         break;
       }
     }
 
     // Check if there are new active alarms (alarm list comparison by ID and status)
-    final oldActiveIds = oldWidget.alarms.where((a) => a.isActive).map((a) => a.id).toSet();
-    final newActiveIds = widget.alarms.where((a) => a.isActive).map((a) => a.id).toSet();
+    final oldActiveIds =
+        oldWidget.alarms.where((a) => a.isActive).map((a) => a.id).toSet();
+    final newActiveIds =
+        widget.alarms.where((a) => a.isActive).map((a) => a.id).toSet();
     final hasNewActiveAlarms = newActiveIds.difference(oldActiveIds).isNotEmpty;
 
     // If alarms list changed or active status changed, restart location tracking
     if (widget.alarms.length != oldWidget.alarms.length ||
         hasActiveStatusChange ||
         hasNewActiveAlarms) {
-      debugPrint('📍 Alarms changed (count: ${oldWidget.alarms.length} → ${widget.alarms.length}, newActive: $hasNewActiveAlarms) - restarting location tracking');
+      debugPrint(
+        '📍 Alarms changed (count: ${oldWidget.alarms.length} → ${widget.alarms.length}, newActive: $hasNewActiveAlarms) - restarting location tracking',
+      );
       _stopLocationTracking(); // Stop first to clean up
       _startLocationTrackingIfNeeded(); // Then restart and get immediate location
       _updateCurrentLocation(); // Get location immediately for progress bar
@@ -143,14 +154,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     switch (state) {
       case AppLifecycleState.resumed:
         // App came to foreground - start smart polling
-        debugPrint('📱 App resumed - starting smart GPS polling for UI updates');
+        debugPrint(
+          '📱 App resumed - starting smart GPS polling for UI updates',
+        );
         _isAppInForeground = true;
         _startLocationTrackingIfNeeded();
         // Get immediate location if there are active alarms
         if (widget.alarms.any((alarm) => alarm.isActive)) {
-          debugPrint('📍 Active alarms detected on resume - getting immediate location');
+          debugPrint(
+            '📍 Active alarms detected on resume - getting immediate location',
+          );
           _updateCurrentLocation();
         }
+        // Re-check app health when returning from Settings
+        debugPrint('🔍 Re-checking app health after resume');
+        _checkAppHealth();
         break;
       case AppLifecycleState.paused:
       case AppLifecycleState.inactive:
@@ -169,7 +187,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _startLocationTrackingIfNeeded() {
     // Don't start if app is in background
     if (!_isAppInForeground) {
-      debugPrint('🔋 App in background - GPS polling disabled (geofencing handles alarms)');
+      debugPrint(
+        '🔋 App in background - GPS polling disabled (geofencing handles alarms)',
+      );
       return;
     }
 
@@ -185,12 +205,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     // Use user's configured update interval (default: 5s, customizable in Settings)
     final updateInterval = SettingsService.updateInterval;
-    debugPrint('📍 GPS polling enabled: ${updateInterval}s interval (UI updates only)');
+    debugPrint(
+      '📍 GPS polling enabled: ${updateInterval}s interval (UI updates only)',
+    );
     debugPrint('🔋 Battery-efficient mode: Polling only when app is visible');
 
     // Set up periodic updates ONLY when app is visible
     _locationUpdateTimer?.cancel(); // Cancel existing timer if any
-    _locationUpdateTimer = Timer.periodic(Duration(seconds: updateInterval), (_) {
+    _locationUpdateTimer = Timer.periodic(Duration(seconds: updateInterval), (
+      _,
+    ) {
       if (_isAppInForeground) {
         _updateCurrentLocation();
       }
@@ -225,20 +249,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       // Get current position using settings
       final useHighAccuracy = SettingsService.highAccuracy;
-      final accuracy = useHighAccuracy ? LocationAccuracy.high : LocationAccuracy.medium;
+      final accuracy =
+          useHighAccuracy ? LocationAccuracy.high : LocationAccuracy.medium;
 
       debugPrint('📍 Fetching current position (accuracy: $accuracy)...');
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: accuracy,
       );
 
-      debugPrint('✅ Location received: ${position.latitude}, ${position.longitude}');
+      debugPrint(
+        '✅ Location received: ${position.latitude}, ${position.longitude}',
+      );
 
       if (mounted) {
         setState(() {
           _currentLocation = position;
         });
-        debugPrint('✅ Location state updated - UI should rebuild with progress bar');
+        debugPrint(
+          '✅ Location state updated - UI should rebuild with progress bar',
+        );
       } else {
         debugPrint('⚠️ Widget not mounted - cannot update state');
       }
@@ -248,14 +277,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-
   /// Navigate to edit alarm screen
   Future<void> _editAlarm(BuildContext context, Alarm alarm) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => MapScreen(existingAlarm: alarm),
-      ),
+      MaterialPageRoute(builder: (context) => MapScreen(existingAlarm: alarm)),
     );
     // Trigger refresh after editing
     widget.onRefreshNeeded?.call();
@@ -265,21 +291,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<bool> _confirmDelete(BuildContext context, Alarm alarm) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Alarm'),
-        content: Text('Are you sure you want to delete "${alarm.name}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Delete Alarm'),
+            content: Text('Are you sure you want to delete "${alarm.name}"?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppTheme.errorColor,
+                ),
+                child: const Text('Delete'),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: AppTheme.errorColor),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
     );
 
     if (confirmed == true) {
@@ -294,99 +323,104 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _showUserMenu(BuildContext context, String email) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // User info header
-            Container(
-              padding: const EdgeInsets.all(AppTheme.paddingLarge),
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor.withValues(alpha: 0.1),
-                border: Border(
-                  bottom: BorderSide(
-                    color: Colors.grey.shade300,
-                    width: 1,
+      builder:
+          (context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // User info header
+                Container(
+                  padding: const EdgeInsets.all(AppTheme.paddingLarge),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withValues(alpha: 0.1),
+                    border: Border(
+                      bottom: BorderSide(color: Colors.grey.shade300, width: 1),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: AppTheme.accentGreen,
+                        radius: 24,
+                        child: Text(
+                          email.substring(0, 1).toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: AppTheme.paddingMedium),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              email,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 16,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const Text(
+                              'Signed in',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: AppTheme.accentGreen,
-                    radius: 24,
-                    child: Text(
-                      email.substring(0, 1).toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 20,
+                // Menu items
+                ListTile(
+                  leading: const Icon(Icons.help_outline),
+                  title: const Text('Help & Instructions'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const HelpScreen(),
                       ),
-                    ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.settings),
+                  title: const Text('Settings'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    // Navigate to settings screen directly
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SettingsScreen(onSettingsApplied: widget.onRefreshNeeded),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.logout, color: Colors.red),
+                  title: const Text(
+                    'Sign Out',
+                    style: TextStyle(color: Colors.red),
                   ),
-                  const SizedBox(width: AppTheme.paddingMedium),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          email,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const Text(
-                          'Signed in',
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    final authService = AuthService();
+                    await authService.signOut();
+                  },
+                ),
+              ],
             ),
-            // Menu items
-            ListTile(
-              leading: const Icon(Icons.help_outline),
-              title: const Text('Help & Instructions'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const HelpScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.settings),
-              title: const Text('Settings'),
-              onTap: () {
-                Navigator.pop(context);
-                // Switch to settings tab (index 2)
-                DefaultTabController.of(context)?.animateTo(2);
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text(
-                'Sign Out',
-                style: TextStyle(color: Colors.red),
-              ),
-              onTap: () async {
-                Navigator.pop(context);
-                final authService = AuthService();
-                await authService.signOut();
-              },
-            ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -432,61 +466,69 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: CircleAvatar(
-            backgroundColor: isSignedIn
-                ? AppTheme.accentGreen
-                : Colors.white.withValues(alpha: 0.3),
-            radius: 16,
-            child: isSignedIn
-                ? Text(
-                    currentUser.email?.substring(0, 1).toUpperCase() ?? 'U',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  )
-                : const Icon(
-                    Icons.person_outline,
-                    color: AppTheme.textOnPrimaryColor,
-                    size: 20,
-                  ),
-          ),
-          onPressed: () {
-            if (isSignedIn) {
-              // Show user menu
-              _showUserMenu(context, currentUser.email ?? 'User');
-            } else {
-              // Navigate to auth screen
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const AuthScreen()),
-              );
-            }
-          },
-          tooltip: isSignedIn ? currentUser.email : 'Sign In',
-        ),
-        title: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(
-                'assets/icons/wakemeup_text.png',
-                height: 32,
-                fit: BoxFit.contain,
+        leadingWidth: 115,
+        leading: Row(
+          children: [
+            IconButton(
+              icon: CircleAvatar(
+                backgroundColor:
+                    isSignedIn
+                        ? AppTheme.accentGreen
+                        : Colors.white.withValues(alpha: 0.3),
+                radius: 16,
+                child:
+                    isSignedIn
+                        ? Text(
+                          currentUser.email?.substring(0, 1).toUpperCase() ??
+                              'U',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        )
+                        : const Icon(
+                          Icons.person_outline,
+                          color: AppTheme.textOnPrimaryColor,
+                          size: 20,
+                        ),
               ),
-              const SizedBox(height: 2),
-              Text(
+              onPressed: () {
+                if (isSignedIn) {
+                  // Show user menu
+                  _showUserMenu(context, currentUser.email ?? 'User');
+                } else {
+                  // Navigate to auth screen
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const AuthScreen()),
+                  );
+                }
+              },
+              tooltip: isSignedIn ? currentUser.email : 'Sign In',
+            ),
+            // Tier badge next to profile
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
                 '${_currentTier.icon} ${_currentTier.displayName}',
                 style: const TextStyle(
                   color: AppTheme.textOnPrimaryColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
+        title: Image.asset(
+          'assets/icons/wakemeup_text.png',
+          height: 32,
+          fit: BoxFit.contain,
         ),
         centerTitle: true,
         backgroundColor: AppTheme.primaryColor,
@@ -532,100 +574,108 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
       body: Container(
         color: AppTheme.backgroundColor,
-        child: widget.alarms.isEmpty
-            ? _EmptyState()
-            : Column(
-                children: [
-                  // Health check banner (shows if there are critical issues)
-                  if (_healthCheckDone && _healthIssues.isNotEmpty)
-                    _buildHealthBanner(),
-                  // Welcome banner for new users
-                  if (_showWelcomeBanner)
-                    _buildWelcomeBanner(),
-                  // Alarm list
-                  Expanded(
-                    child: ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: widget.alarms.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                  final alarm = widget.alarms[index];
+        child:
+            widget.alarms.isEmpty
+                ? _EmptyState(onAddAlarm: widget.onAddAlarm)
+                : Column(
+                  children: [
+                    // Health check banner (shows if there are critical issues)
+                    if (_healthCheckDone && _healthIssues.isNotEmpty)
+                      _buildHealthBanner(),
+                    // Welcome banner for new users
+                    if (_showWelcomeBanner) _buildWelcomeBanner(),
+                    // Alarm list
+                    Expanded(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: widget.alarms.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final alarm = widget.alarms[index];
 
-                  // Calculate distance and ETA if alarm is active and we have location
-                  double? distance;
-                  Duration? eta;
-                  if (alarm.isActive && _currentLocation != null) {
-                    distance = Geolocator.distanceBetween(
-                      _currentLocation!.latitude,
-                      _currentLocation!.longitude,
-                      alarm.latitude,
-                      alarm.longitude,
-                    );
+                          // Calculate distance and ETA if alarm is active and we have location
+                          double? distance;
+                          Duration? eta;
+                          if (alarm.isActive && _currentLocation != null) {
+                            distance = Geolocator.distanceBetween(
+                              _currentLocation!.latitude,
+                              _currentLocation!.longitude,
+                              alarm.latitude,
+                              alarm.longitude,
+                            );
 
-                    // Calculate ETA using new calculator
-                    eta = ETACalculator.calculateETA(
-                      currentDistance: distance,
-                      currentPosition: _currentLocation!,
-                    );
-                  }
+                            // Calculate ETA using new calculator
+                            eta = ETACalculator.calculateETA(
+                              currentDistance: distance,
+                              currentPosition: _currentLocation!,
+                            );
+                          }
 
-                  // Wrap card with Dismissible for swipe actions
-                  return Dismissible(
-                    key: ValueKey(alarm.id),
-                    // Allow swipe actions for all alarms (including active/completed ones)
-                    confirmDismiss: (direction) async {
-                      if (direction == DismissDirection.endToStart) {
-                        // Swipe left - Delete action (always allowed)
-                        return await _confirmDelete(context, alarm);
-                      } else if (direction == DismissDirection.startToEnd) {
-                        // Swipe right - Edit action
-                        // For ALL active alarms (including completed), show message to toggle off first
-                        if (alarm.isActive) {
-                          final message = alarm.isCompleted
-                              ? 'Please toggle off the completed alarm before editing'
-                              : 'Please toggle off the alarm before editing';
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(message),
-                              duration: const Duration(seconds: 2),
+                          // Wrap card with Dismissible for swipe actions
+                          return Dismissible(
+                            key: ValueKey(alarm.id),
+                            // Allow swipe actions for all alarms (including active/completed ones)
+                            confirmDismiss: (direction) async {
+                              if (direction == DismissDirection.endToStart) {
+                                // Swipe left - Delete action (always allowed)
+                                return await _confirmDelete(context, alarm);
+                              } else if (direction ==
+                                  DismissDirection.startToEnd) {
+                                // Swipe right - Edit action
+                                // For ALL active alarms (including completed), show message to toggle off first
+                                if (alarm.isActive) {
+                                  final message =
+                                      alarm.isCompleted
+                                          ? 'Please toggle off the completed alarm before editing'
+                                          : 'Please toggle off the alarm before editing';
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(message),
+                                      duration: const Duration(seconds: 2),
+                                    ),
+                                  );
+                                  return false;
+                                }
+                                // Only allow editing of inactive alarms
+                                await _editAlarm(context, alarm);
+                                return false; // Don't dismiss
+                              }
+                              return false;
+                            },
+                            background: _buildSwipeBackground(
+                              true,
+                            ), // Edit (left side)
+                            secondaryBackground: _buildSwipeBackground(
+                              false,
+                            ), // Delete (right side)
+                            child: _AlarmCard(
+                              alarm: alarm,
+                              currentDistance: distance,
+                              eta: eta,
+                              onTap: () {
+                                if (alarm.isActive) {
+                                  // Active alarm: Navigate to live map detail view
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder:
+                                          (context) => AlarmDetailMapScreen(
+                                            alarm: alarm,
+                                          ),
+                                    ),
+                                  );
+                                } else {
+                                  // Inactive alarm: Navigate to edit screen
+                                  _editAlarm(context, alarm);
+                                }
+                              },
+                              onToggle: (active) async {
+                                // Simply toggle the alarm without warnings
+                                widget.onToggleAlarm(alarm.id, active);
+                              },
                             ),
-                          );
-                          return false;
-                        }
-                        // Only allow editing of inactive alarms
-                        await _editAlarm(context, alarm);
-                        return false; // Don't dismiss
-                      }
-                      return false;
-                    },
-                    background: _buildSwipeBackground(true), // Edit (left side)
-                    secondaryBackground: _buildSwipeBackground(false), // Delete (right side)
-                    child: _AlarmCard(
-                      alarm: alarm,
-                      currentDistance: distance,
-                      eta: eta,
-                      onTap: () {
-                        if (alarm.isActive) {
-                          // Active alarm: Navigate to live map detail view
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  AlarmDetailMapScreen(alarm: alarm),
-                            ),
-                          );
-                        } else {
-                          // Inactive alarm: Navigate to edit screen
-                          _editAlarm(context, alarm);
-                        }
-                      },
-                      onToggle: (active) async {
-                      // Simply toggle the alarm without warnings
-                      widget.onToggleAlarm(alarm.id, active);
-                    },
-                  ),
-                  ); // Close Dismissible widget
-                },
+                          ); // Close Dismissible widget
+                        },
                       ),
                     ),
                   ],
@@ -739,9 +789,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Build health check banner showing critical issues
   Widget _buildHealthBanner() {
-    final criticalIssues = _healthIssues
-        .where((i) => i.severity == HealthIssueSeverity.critical)
-        .toList();
+    final criticalIssues =
+        _healthIssues
+            .where((i) => i.severity == HealthIssueSeverity.critical)
+            .toList();
 
     if (criticalIssues.isEmpty) return const SizedBox.shrink();
 
@@ -809,76 +860,265 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
 /* ----------------------------- Empty State ------------------------------ */
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({Key? key}) : super(key: key);
+class _EmptyState extends StatefulWidget {
+  final VoidCallback onAddAlarm;
+
+  const _EmptyState({Key? key, required this.onAddAlarm}) : super(key: key);
+
+  @override
+  State<_EmptyState> createState() => _EmptyStateState();
+}
+
+class _EmptyStateState extends State<_EmptyState>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _pulseAnimation;
+  late Animation<double> _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Setup animations
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(begin: 0.9, end: 1.1).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              color: AppTheme.primaryColor.withValues(alpha: 0.08),
-              shape: BoxShape.circle,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppTheme.paddingXLarge),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Animated illustration
+            AnimatedBuilder(
+              animation: _animationController,
+              builder: (context, child) {
+                return Transform.scale(
+                  scale: _pulseAnimation.value,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Outer pulse ring
+                      Opacity(
+                        opacity: 1.0 - _fadeAnimation.value,
+                        child: Container(
+                          width: 200,
+                          height: 200,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: AppTheme.primaryColor.withValues(
+                                alpha: 0.3,
+                              ),
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Middle ring
+                      Container(
+                        width: 160,
+                        height: 160,
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryColor.withValues(alpha: 0.05),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      // Inner circle with icon
+                      Container(
+                        width: 120,
+                        height: 120,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              AppTheme.primaryColor.withValues(alpha: 0.15),
+                              AppTheme.accentGreen.withValues(alpha: 0.1),
+                            ],
+                          ),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.primaryColor.withValues(
+                                alpha: 0.1,
+                              ),
+                              blurRadius: 20,
+                              spreadRadius: 5,
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.add_location_alt_rounded,
+                          size: 64,
+                          color: AppTheme.primaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
-            child: Icon(
-              Icons.location_on_outlined,
-              size: 64,
-              color: AppTheme.primaryColor.withValues(alpha: 0.4),
+
+            const SizedBox(height: 24),
+
+            // Title
+            Text(
+              'Start Your Journey',
+              style: AppTheme.displaySmall.copyWith(
+                color: AppTheme.textPrimaryColor,
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ),
-          const SizedBox(height: AppTheme.paddingLarge),
-          Text(
-            'No Location Alarms',
-            style: AppTheme.displaySmall.copyWith(
-              color: AppTheme.textPrimaryColor,
-              fontSize: 22,
-            ),
-          ),
-          const SizedBox(height: AppTheme.paddingSmall),
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppTheme.paddingXLarge,
-            ),
-            child: Text(
-              'Create your first location-based alarm to get notified when you arrive',
+
+            // Description
+            Text(
+              'Never miss your stop again!\nSet location-based alarms for your bus, train, or any journey.',
               textAlign: TextAlign.center,
               style: AppTheme.bodyMedium.copyWith(
                 color: AppTheme.textSecondaryColor,
-                height: 1.5,
+                height: 1.6,
+                fontSize: 16,
               ),
             ),
-          ),
-          const SizedBox(height: AppTheme.paddingLarge),
+
+            const SizedBox(height: 24),
+
+            // Feature highlights
+            _buildFeatureRow(
+              Icons.location_pin,
+              'Pin Your Destination',
+              'Set alarms for any location',
+            ),
+            const SizedBox(height: 12),
+            _buildFeatureRow(
+              Icons.bedtime_rounded,
+              'Sleep Peacefully',
+              'We\'ll wake you when you arrive',
+            ),
+            const SizedBox(height: 12),
+            _buildFeatureRow(
+              Icons.phone_android_rounded,
+              'Works in Background',
+              'Even when your phone is locked',
+            ),
+
+            const SizedBox(height: 28),
+
+            // CTA button with animation
+            AnimatedBuilder(
+              animation: _fadeAnimation,
+              builder: (context, child) {
+                return Opacity(
+                  opacity: 0.6 + (_fadeAnimation.value * 0.4),
+                  child: GestureDetector(
+                    onTap: widget.onAddAlarm,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [AppTheme.primaryColor, AppTheme.accentGreen],
+                        ),
+                        borderRadius: BorderRadius.circular(30),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.primaryColor.withValues(alpha: 0.3),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.add_circle_outline,
+                            size: 24,
+                            color: Colors.white,
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Create Your First Alarm',
+                            style: AppTheme.labelLarge.copyWith(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeatureRow(IconData icon, String title, String subtitle) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.borderColor.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        children: [
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppTheme.paddingMedium,
-              vertical: AppTheme.paddingSmall,
-            ),
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
-              color: AppTheme.accentGreen.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-              border: Border.all(
-                color: AppTheme.accentGreen.withValues(alpha: 0.3),
-              ),
+              color: AppTheme.primaryColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Icon(icon, color: AppTheme.primaryColor, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.touch_app_rounded,
-                  size: 18,
-                  color: AppTheme.accentGreen,
-                ),
-                const SizedBox(width: 8),
                 Text(
-                  'Tap the + button to get started',
-                  style: AppTheme.labelLarge.copyWith(
-                    color: AppTheme.accentGreen,
+                  title,
+                  style: AppTheme.bodyMedium.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textPrimaryColor,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: AppTheme.bodySmall.copyWith(
+                    color: AppTheme.textSecondaryColor,
+                    fontSize: 13,
                   ),
                 ),
               ],
@@ -907,7 +1147,6 @@ class _AlarmCard extends StatelessWidget {
     this.currentDistance,
     this.eta,
   }) : super(key: key);
-
 
   @override
   Widget build(BuildContext context) {
@@ -966,61 +1205,65 @@ class _AlarmCard extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTheme.headingMedium.copyWith(
-                              color: isCompleted
-                                  ? AppTheme.successColor
-                                  : AppTheme.getTextColor(isActive: isActive),
+                              color:
+                                  isCompleted
+                                      ? AppTheme.successColor
+                                      : AppTheme.getTextColor(
+                                        isActive: isActive,
+                                      ),
                             ),
                           ),
                         ),
                         // Always show switch - completed alarms can be toggled off
                         Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // Show completed badge next to switch when completed
-                              if (isCompleted)
-                                Container(
-                                  margin: const EdgeInsets.only(right: 8),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.successColor.withValues(
-                                      alpha: 0.15,
-                                    ),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        Icons.check_circle,
-                                        color: AppTheme.successColor,
-                                        size: 14,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        'Arrived',
-                                        style: AppTheme.labelSmall.copyWith(
-                                          color: AppTheme.successColor,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Show completed badge next to switch when completed
+                            if (isCompleted)
+                              Container(
+                                margin: const EdgeInsets.only(right: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
                                 ),
-                              Switch.adaptive(
-                                value: alarm.isActive,
-                                onChanged: onToggle,
-                                activeColor: isCompleted
-                                    ? AppTheme.successColor
-                                    : AppTheme.accentGreen,
-                                inactiveThumbColor: AppTheme.textOnPrimaryColor,
-                                inactiveTrackColor: AppTheme.borderColor,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.successColor.withValues(
+                                    alpha: 0.15,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.check_circle,
+                                      color: AppTheme.successColor,
+                                      size: 14,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Arrived',
+                                      style: AppTheme.labelSmall.copyWith(
+                                        color: AppTheme.successColor,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ],
-                          ),
+                            Switch.adaptive(
+                              value: alarm.isActive,
+                              onChanged: onToggle,
+                              activeColor:
+                                  isCompleted
+                                      ? AppTheme.successColor
+                                      : AppTheme.accentGreen,
+                              inactiveThumbColor: AppTheme.textOnPrimaryColor,
+                              inactiveTrackColor: AppTheme.borderColor,
+                            ),
+                          ],
+                        ),
                       ],
                     ),
 
@@ -1032,12 +1275,13 @@ class _AlarmCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTheme.bodySmall.copyWith(
-                        color: isCompleted
-                            ? AppTheme.successColor.withValues(alpha: 0.7)
-                            : AppTheme.getTextColor(
-                                isActive: isActive,
-                                isSecondary: true,
-                              ),
+                        color:
+                            isCompleted
+                                ? AppTheme.successColor.withValues(alpha: 0.7)
+                                : AppTheme.getTextColor(
+                                  isActive: isActive,
+                                  isSecondary: true,
+                                ),
                       ),
                     ),
 
@@ -1205,33 +1449,35 @@ class _MetaChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chipColor = isCompleted
-        ? AppTheme.successColor.withValues(alpha: 0.1)
-        : null;
-    final contentColor = isCompleted
-        ? AppTheme.successColor.withValues(alpha: 0.7)
-        : AppTheme.getTextColor(isActive: isActive);
+    final chipColor =
+        isCompleted ? AppTheme.successColor.withValues(alpha: 0.1) : null;
+    final contentColor =
+        isCompleted
+            ? AppTheme.successColor.withValues(alpha: 0.7)
+            : AppTheme.getTextColor(isActive: isActive);
 
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppTheme.paddingSmall + 2,
         vertical: 6,
       ),
-      decoration: isCompleted
-          ? BoxDecoration(
-              color: chipColor,
-              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-            )
-          : AppTheme.chipDecoration(isActive: isActive),
+      decoration:
+          isCompleted
+              ? BoxDecoration(
+                color: chipColor,
+                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+              )
+              : AppTheme.chipDecoration(isActive: isActive),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             icon,
             size: 15,
-            color: isCompleted
-                ? AppTheme.successColor.withValues(alpha: 0.7)
-                : AppTheme.getIconColor(isActive: isActive),
+            color:
+                isCompleted
+                    ? AppTheme.successColor.withValues(alpha: 0.7)
+                    : AppTheme.getIconColor(isActive: isActive),
           ),
           const SizedBox(width: 6),
           Text(
@@ -1329,9 +1575,10 @@ class _ProgressIndicator extends StatelessWidget {
           child: LinearProgressIndicator(
             value: progress,
             minHeight: 6,
-            backgroundColor: isActive
-                ? AppTheme.activeAlarmBorder.withValues(alpha: 0.2)
-                : AppTheme.borderColor.withValues(alpha: 0.3),
+            backgroundColor:
+                isActive
+                    ? AppTheme.activeAlarmBorder.withValues(alpha: 0.2)
+                    : AppTheme.borderColor.withValues(alpha: 0.3),
             valueColor: AlwaysStoppedAnimation<Color>(progressColor),
           ),
         ),

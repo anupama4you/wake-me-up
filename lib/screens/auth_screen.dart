@@ -95,9 +95,7 @@ class _AuthScreenState extends State<AuthScreen> {
   void _navigateToForgotPassword() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const ForgotPasswordScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const ForgotPasswordScreen()),
     );
   }
 
@@ -123,7 +121,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 // Logo
                 Center(
                   child: Image.asset(
-                    'assets/icons/wakemeup_text.png',
+                    'assets/icons/wakemeup_text_black.png',
                     height: 60,
                     fit: BoxFit.contain,
                   ),
@@ -189,7 +187,8 @@ class _AuthScreenState extends State<AuthScreen> {
                   obscureText: true,
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    hintText: _isLogin ? 'Your password' : 'Create a strong password',
+                    hintText:
+                        _isLogin ? 'Your password' : 'Create a strong password',
                     prefixIcon: const Icon(Icons.lock_outline),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -230,23 +229,25 @@ class _AuthScreenState extends State<AuthScreen> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
+                  child:
+                      _isLoading
+                          ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
+                          : Text(
+                            _isLogin ? 'Sign In' : 'Get Started',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                        )
-                      : Text(
-                          _isLogin ? 'Sign In' : 'Get Started',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
                 ),
 
                 const SizedBox(height: 24),
@@ -272,8 +273,8 @@ class _AuthScreenState extends State<AuthScreen> {
                     'https://www.google.com/favicon.ico',
                     width: 24,
                     height: 24,
-                    errorBuilder: (context, error, stackTrace) =>
-                        const Icon(Icons.login),
+                    errorBuilder:
+                        (context, error, stackTrace) => const Icon(Icons.login),
                   ),
                   label: const Text('Continue with Google'),
                   style: OutlinedButton.styleFrom(
@@ -291,20 +292,19 @@ class _AuthScreenState extends State<AuthScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      _isLogin
-                          ? "New here? "
-                          : 'Already have an account? ',
+                      _isLogin ? "New here? " : 'Already have an account? ',
                       style: const TextStyle(fontSize: 15),
                     ),
                     TextButton(
-                      onPressed: _isLoading
-                          ? null
-                          : () {
-                              setState(() {
-                                _isLogin = !_isLogin;
-                                _errorMessage = null;
-                              });
-                            },
+                      onPressed:
+                          _isLoading
+                              ? null
+                              : () {
+                                setState(() {
+                                  _isLogin = !_isLogin;
+                                  _errorMessage = null;
+                                });
+                              },
                       child: Text(
                         _isLogin ? 'Create Account' : 'Sign In',
                         style: TextStyle(

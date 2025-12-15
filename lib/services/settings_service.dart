@@ -20,8 +20,8 @@ class SettingsService {
   /// Check if settings is initialized
   static bool get isInitialized => _prefs != null;
 
-  // Default Radius (in meters)
-  static double get defaultRadius => _prefs?.getDouble(_keyDefaultRadius) ?? 500.0;
+  // Default Radius (in meters) - Default is 1km (1000m)
+  static double get defaultRadius => _prefs?.getDouble(_keyDefaultRadius) ?? 1000.0;
   static Future<void> setDefaultRadius(double value) async {
     await _prefs?.setDouble(_keyDefaultRadius, value);
   }

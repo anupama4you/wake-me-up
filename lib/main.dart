@@ -104,18 +104,8 @@ Future<void> _initializeNotifications() async {
     },
   );
 
-  // Explicitly request iOS permissions
-  final iosPlugin = flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
-
-  if (iosPlugin != null) {
-    final granted = await iosPlugin.requestPermissions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    debugPrint('📱 iOS notification permissions granted: $granted');
-  }
+  // Note: Notification permissions are now requested during onboarding
+  // This ensures a better user experience with proper context
 
   debugPrint('✅ Notifications initialized');
 }

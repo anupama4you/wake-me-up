@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/alarm.dart';
+import 'settings_service.dart';
 
 /// Native iOS geofencing service using Core Location
 /// This provides reliable background geofencing on iOS
@@ -55,6 +56,7 @@ class NativeIOSGeofenceService {
     try {
       debugPrint('📍 Starting NATIVE iOS geofence for: ${alarm.name}');
       debugPrint('   - Ringtone: ${alarm.ringtone}');
+      debugPrint('   - Vibration: ${SettingsService.vibrationEnabled}');
       final result = await _channel.invokeMethod('startGeofence', {
         'id': alarm.id,
         'latitude': alarm.latitude,
@@ -62,6 +64,7 @@ class NativeIOSGeofenceService {
         'radius': alarm.radius,
         'name': alarm.name,
         'ringtone': alarm.ringtone, // Pass ringtone to native iOS for background playback
+        'vibrationEnabled': SettingsService.vibrationEnabled, // Pass vibration setting to native iOS
       });
       debugPrint('✅ Native iOS geofence started: $result');
       return result == true;

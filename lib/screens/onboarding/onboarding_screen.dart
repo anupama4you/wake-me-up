@@ -18,21 +18,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   final List<OnboardingPage> _pages = [
     OnboardingPage(
-      icon: Icons.airline_seat_recline_extra,
+      imagePath: 'assets/images/step1.png',
       title: 'Never Miss Your Stop',
       description:
           'Traveling by bus or train? Fall asleep worry-free!\n\nWe\'ll wake you up when you reach your destination.',
       color: AppTheme.accentGreen,
     ),
     OnboardingPage(
-      icon: Icons.location_on_rounded,
+      imagePath: 'assets/images/step2.png',
       title: 'Location-Based Alarms',
       description:
           'Set alarms for places, not times.\n\nWe\'ll alert you when you arrive at your chosen location!',
       color: AppTheme.primaryColor,
     ),
     OnboardingPage(
-      icon: Icons.phone_android_rounded,
+      imagePath: 'assets/images/step3.png',
       title: 'Works in Background',
       description:
           'Our smart tracking works even when your phone is locked.\n\nLow battery usage with intelligent tracking.',
@@ -80,9 +80,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // Navigate to permission request screen
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (context) => const PermissionRequestScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const PermissionRequestScreen()),
     );
   }
 
@@ -92,9 +90,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(
-        builder: (context) => const PermissionRequestScreen(),
-      ),
+      MaterialPageRoute(builder: (context) => const PermissionRequestScreen()),
     );
   }
 
@@ -161,9 +157,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     elevation: 2,
                   ),
                   child: Text(
-                    _currentPage == _pages.length - 1
-                        ? 'Get Started'
-                        : 'Next',
+                    _currentPage == _pages.length - 1 ? 'Get Started' : 'Next',
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -186,20 +180,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Icon/Illustration
-          Container(
-            width: 140,
-            height: 140,
-            decoration: BoxDecoration(
-              color: page.color.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
+          // Image or Icon
+          if (page.imagePath != null)
+            // Display image (1:1 aspect ratio)
+            Container(
+              width: 280,
+              height: 280,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Image.asset(page.imagePath!, fit: BoxFit.contain),
+              ),
+            )
+          else
+            // Display icon for last page
+            Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                color: page.color.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(page.icon, size: 80, color: page.color),
             ),
-            child: Icon(
-              page.icon,
-              size: 80,
-              color: page.color,
-            ),
-          ),
 
           const SizedBox(height: 48),
 
@@ -250,7 +255,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         children: [
           _buildPlanFeature('Free', '1 alarm, 20km trips'),
           const Divider(height: 24),
-          _buildPlanFeature('Commuter', '5 alarms, 50km trips'),
+          _buildPlanFeature('Commuter', '5 alarms, 50km trips', isPro: true),
           const Divider(height: 24),
           _buildPlanFeature('Pro', 'Unlimited everything', isPro: true),
         ],
@@ -276,7 +281,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
-                  color: isPro ? Colors.amber.shade700 : AppTheme.textPrimaryColor,
+                  color:
+                      isPro ? Colors.amber.shade700 : AppTheme.textPrimaryColor,
                 ),
               ),
               Text(
@@ -309,15 +315,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
 /// Data model for onboarding page
 class OnboardingPage {
-  final IconData icon;
+  final IconData? icon;
+  final String? imagePath;
   final String title;
   final String description;
   final Color color;
 
   OnboardingPage({
-    required this.icon,
+    this.icon,
+    this.imagePath,
     required this.title,
     required this.description,
     required this.color,
-  });
+  }) : assert(
+         icon != null || imagePath != null,
+         'Either icon or imagePath must be provided',
+       );
 }

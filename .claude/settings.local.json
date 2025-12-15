@@ -19,7 +19,8 @@
       "Bash(export LANG=en_US.UTF-8)",
       "Bash(flutter build:*)",
       "Bash(./gradlew tasks:*)",
-      "Bash(gradlew signingReport:*)"
+      "Bash(gradlew signingReport:*)",
+      "Bash(cp:*)"
     ],
     "deny": [],
     "ask": []
