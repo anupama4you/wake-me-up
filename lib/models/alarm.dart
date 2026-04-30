@@ -6,10 +6,11 @@ class Alarm {
   final double longitude;
   final double radius;
   final String soundLevel;
-  final String ringtone; // Custom ringtone selection
-  bool isActive; // Changed from final to mutable
-  bool isCompleted; // Marks alarm as completed when user reaches destination
-  DateTime? completedAt; // Timestamp when alarm was triggered
+  final String ringtone;
+  bool isActive;
+  bool isCompleted;
+  DateTime? completedAt;
+  final List<int> repeatDays; // 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
 
   Alarm({
     required this.id,
@@ -19,13 +20,32 @@ class Alarm {
     required this.longitude,
     required this.radius,
     this.soundLevel = 'Medium',
-    this.ringtone = 'alarm', // Default to alarm.mp3
+    this.ringtone = 'alarm',
     this.isActive = false,
     this.isCompleted = false,
     this.completedAt,
+    this.repeatDays = const [],
   });
 
-  // Convert Alarm to JSON for persistence
+  bool get isRepeating => repeatDays.isNotEmpty;
+
+  String get repeatLabel {
+    if (repeatDays.isEmpty) return '';
+    const abbr = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final sorted = List<int>.from(repeatDays)..sort();
+
+    // Common patterns
+    if (sorted.length == 5 && !sorted.contains(5) && !sorted.contains(6)) {
+      return 'Weekdays';
+    }
+    if (sorted.length == 2 && sorted.contains(5) && sorted.contains(6)) {
+      return 'Weekends';
+    }
+    if (sorted.length == 7) return 'Every day';
+
+    return sorted.map((d) => abbr[d]).join(' · ');
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -39,10 +59,10 @@ class Alarm {
       'isActive': isActive,
       'isCompleted': isCompleted,
       'completedAt': completedAt?.toIso8601String(),
+      'repeatDays': repeatDays,
     };
   }
 
-  // Create Alarm from JSON
   factory Alarm.fromJson(Map<String, dynamic> json) {
     return Alarm(
       id: json['id'],
@@ -58,10 +78,13 @@ class Alarm {
       completedAt: json['completedAt'] != null
           ? DateTime.tryParse(json['completedAt'])
           : null,
+      repeatDays: (json['repeatDays'] as List<dynamic>?)
+              ?.map((e) => e as int)
+              .toList() ??
+          [],
     );
   }
 
-  /// Create a copy of this alarm with updated fields
   Alarm copyWith({
     String? id,
     String? name,
@@ -74,6 +97,7 @@ class Alarm {
     bool? isActive,
     bool? isCompleted,
     DateTime? completedAt,
+    List<int>? repeatDays,
   }) {
     return Alarm(
       id: id ?? this.id,
@@ -87,6 +111,7 @@ class Alarm {
       isActive: isActive ?? this.isActive,
       isCompleted: isCompleted ?? this.isCompleted,
       completedAt: completedAt ?? this.completedAt,
+      repeatDays: repeatDays ?? this.repeatDays,
     );
   }
 }

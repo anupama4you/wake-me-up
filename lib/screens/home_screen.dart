@@ -6,6 +6,7 @@ import '../models/tier.dart';
 import '../theme/app_theme.dart';
 import '../services/settings_service.dart';
 import '../services/auth_service.dart';
+import '../services/subscription_service.dart';
 import '../services/tier_service.dart';
 import '../services/first_time_setup_service.dart';
 import '../utils/eta_calculator.dart';
@@ -22,6 +23,9 @@ class HomeScreen extends StatefulWidget {
   final Function(String) onDeleteAlarm;
   final VoidCallback onAddAlarm;
   final VoidCallback? onRefreshNeeded;
+  /// Called when foreground GPS confirms the user has entered an alarm's radius.
+  /// The parent (MainScreen) is responsible for triggering the alarm and reloading.
+  final Function(String alarmId)? onProximityTrigger;
 
   const HomeScreen({
     Key? key,
@@ -30,6 +34,7 @@ class HomeScreen extends StatefulWidget {
     required this.onDeleteAlarm,
     required this.onAddAlarm,
     this.onRefreshNeeded,
+    this.onProximityTrigger,
   }) : super(key: key);
 
   @override
@@ -44,6 +49,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _healthCheckDone = false;
   bool _showWelcomeBanner = false;
   Tier _currentTier = Tier.free;
+  // Track alarm IDs already triggered by foreground GPS to prevent re-firing.
+  // Cleared implicitly when HomeScreen rebuilds with a new ValueKey.
+  final Set<String> _proxTriggeredIds = {};
 
   @override
   void initState() {
@@ -271,6 +279,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       } else {
         debugPrint('⚠️ Widget not mounted - cannot update state');
       }
+
+      // Foreground proximity trigger: fire alarm the moment GPS confirms the
+      // user has entered the alarm radius, without waiting for the OS geofence
+      // event (which can arrive 30–120s late on Android).
+      if (widget.onProximityTrigger != null) {
+        for (final alarm in widget.alarms) {
+          if (!alarm.isActive || alarm.isCompleted) continue;
+          if (_proxTriggeredIds.contains(alarm.id)) continue;
+          final dist = Geolocator.distanceBetween(
+            position.latitude, position.longitude,
+            alarm.latitude, alarm.longitude,
+          );
+          if (dist <= alarm.radius) {
+            _proxTriggeredIds.add(alarm.id);
+            debugPrint('🎯 Foreground proximity trigger: ${alarm.name} (${dist.round()}m ≤ ${alarm.radius.round()}m)');
+            widget.onProximityTrigger!(alarm.id);
+          }
+        }
+      }
     } catch (e) {
       // Ignore errors silently
       debugPrint('❌ Location update error: $e');
@@ -414,8 +441,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                   onTap: () async {
                     Navigator.pop(context);
-                    final authService = AuthService();
-                    await authService.signOut();
+                    await SubscriptionService().logoutUser();
+                    await AuthService().signOut();
+                    await TierService.resetToFree();
                   },
                 ),
               ],
@@ -1196,7 +1224,7 @@ class _AlarmCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Top row: Location name | switch or edit button
+                    // Top row: Location name | distance badge | switch
                     Row(
                       children: [
                         Expanded(
@@ -1214,6 +1242,12 @@ class _AlarmCard extends StatelessWidget {
                             ),
                           ),
                         ),
+                        // Distance badge — shown for active alarms with GPS fix
+                        if (isActive && !isCompleted && currentDistance != null)
+                          _DistanceBadge(
+                            distance: currentDistance!,
+                            radius: alarm.radius,
+                          ),
                         // Always show switch - completed alarms can be toggled off
                         Row(
                           mainAxisSize: MainAxisSize.min,
@@ -1302,22 +1336,31 @@ class _AlarmCard extends StatelessWidget {
 
                     const SizedBox(height: AppTheme.paddingSmall + 2),
 
-                    // Bottom meta: radius | sound
+                    // Bottom meta: radius | sound | repeat (if set)
                     Row(
                       children: [
                         _MetaChip(
                           icon: Icons.radar,
-                          label: '${alarm.radius?.toStringAsFixed(0) ?? '-'} m',
+                          label: '${alarm.radius.toStringAsFixed(0)} m',
                           isActive: isActive,
                           isCompleted: isCompleted,
                         ),
                         const SizedBox(width: 8),
                         _MetaChip(
                           icon: Icons.volume_up,
-                          label: alarm.soundLevel ?? 'Default',
+                          label: alarm.soundLevel,
                           isActive: isActive,
                           isCompleted: isCompleted,
                         ),
+                        if (alarm.isRepeating) ...[
+                          const SizedBox(width: 8),
+                          _MetaChip(
+                            icon: Icons.repeat,
+                            label: alarm.repeatLabel,
+                            isActive: isActive,
+                            isCompleted: isCompleted,
+                          ),
+                        ],
                       ],
                     ),
                   ],
@@ -1483,6 +1526,60 @@ class _MetaChip extends StatelessWidget {
           Text(
             label,
             style: AppTheme.labelMedium.copyWith(color: contentColor),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/* --------------------------- Distance Badge ----------------------------- */
+
+class _DistanceBadge extends StatelessWidget {
+  final double distance;
+  final double radius;
+
+  const _DistanceBadge({required this.distance, required this.radius});
+
+  String get _label {
+    if (distance < 1000) return '${distance.round()} m';
+    return '${(distance / 1000).toStringAsFixed(1)} km';
+  }
+
+  Color get _color {
+    if (distance <= radius) return AppTheme.errorColor;
+    if (distance <= radius * 3) return Colors.orange;
+    return AppTheme.accentGreen;
+  }
+
+  bool get _isNearby => distance <= radius * 2;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(right: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: _color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            _isNearby ? Icons.notifications_active_rounded : Icons.navigation_rounded,
+            size: 11,
+            color: _color,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            _isNearby ? 'Nearby!' : _label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: _color,
+            ),
           ),
         ],
       ),

@@ -33,12 +33,15 @@ class AlarmSettingsScreen extends StatefulWidget {
 class _AlarmSettingsScreenState extends State<AlarmSettingsScreen>
     with SingleTickerProviderStateMixin {
   static const List<int> _radiusOptionsKm = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  static const List<String> _dayAbbr = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   double _radius = 1000;
   AlarmRingtone _selectedRingtone = AlarmRingtone.alarm;
+  List<int> _repeatDays = [];
   late final TextEditingController _nameController;
   late final String _originalName;
   late final double _originalRadius;
   late final AlarmRingtone _originalRingtone;
+  late final List<int> _originalRepeatDays;
   GoogleMapController? _mapController;
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
@@ -55,17 +58,20 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen>
         widget.existingAlarm!.ringtone,
       );
       _nameController.text = widget.existingAlarm!.name;
+      _repeatDays = List<int>.from(widget.existingAlarm!.repeatDays);
     } else {
       // Load default radius from settings for new alarms, clamped to valid range
       _radius = _normalizeRadius(SettingsService.defaultRadius);
       _selectedRingtone = AlarmRingtone.fromString(
         SettingsService.defaultRingtone,
       );
+      _repeatDays = [];
     }
 
     _originalName = _nameController.text.trim();
     _originalRadius = _radius;
     _originalRingtone = _selectedRingtone;
+    _originalRepeatDays = List<int>.from(_repeatDays);
 
     // Initialize animation controller for pulsing effect
     _animationController = AnimationController(
@@ -94,10 +100,26 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen>
 
   int get _selectedRadiusKm => (_radius / 1000).round().clamp(1, 10);
 
+  String _buildRepeatLabel() {
+    if (_repeatDays.isEmpty) return '';
+    final sorted = List<int>.from(_repeatDays)..sort();
+    if (sorted.length == 5 && !sorted.contains(5) && !sorted.contains(6)) {
+      return 'Weekdays';
+    }
+    if (sorted.length == 2 && sorted.contains(5) && sorted.contains(6)) {
+      return 'Weekends';
+    }
+    if (sorted.length == 7) return 'Every day';
+    return sorted.map((d) => _dayAbbr[d]).join(', ');
+  }
+
   bool get _hasUnsavedChanges {
+    final repeatChanged = _repeatDays.length != _originalRepeatDays.length ||
+        _repeatDays.any((d) => !_originalRepeatDays.contains(d));
     return _nameController.text.trim() != _originalName ||
         _radius != _originalRadius ||
-        _selectedRingtone != _originalRingtone;
+        _selectedRingtone != _originalRingtone ||
+        repeatChanged;
   }
 
   Future<bool> _confirmNavigationAway() async {
@@ -200,6 +222,7 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen>
       soundLevel: 'Loud', // Default value - actual volume controlled by phone
       ringtone: _selectedRingtone.name,
       isActive: startNow,
+      repeatDays: List<int>.from(_repeatDays),
     );
 
     // Save alarm to local storage
@@ -619,6 +642,87 @@ class _AlarmSettingsScreenState extends State<AlarmSettingsScreen>
                           ),
                         ),
                       ),
+                      const SizedBox(height: 24),
+
+                      // Repeat days section
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Repeat',
+                            style: TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          if (_repeatDays.isNotEmpty)
+                            TextButton(
+                              onPressed: () => setState(() => _repeatDays.clear()),
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: Text(
+                                'Clear',
+                                style: TextStyle(
+                                  color: Colors.blue[600],
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: List.generate(7, (i) {
+                          final selected = _repeatDays.contains(i);
+                          return GestureDetector(
+                            onTap: () => setState(() {
+                              selected
+                                  ? _repeatDays.remove(i)
+                                  : _repeatDays.add(i);
+                            }),
+                            child: Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: selected
+                                    ? Colors.blue[600]
+                                    : Colors.grey[100],
+                                border: Border.all(
+                                  color: selected
+                                      ? Colors.blue[600]!
+                                      : Colors.grey[300]!,
+                                ),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  _dayAbbr[i].substring(0, 1),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: selected
+                                        ? Colors.white
+                                        : Colors.grey[600],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+                      if (_repeatDays.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Repeats: ${_buildRepeatLabel()}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue[700],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+
                       const SizedBox(height: 32),
 
                       Row(

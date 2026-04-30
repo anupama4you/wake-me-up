@@ -901,11 +901,12 @@ class _SettingsScreenState extends State<SettingsScreen> implements SettingsScre
     );
 
     try {
-      // Sign out from Firebase
+      // Sign out from RevenueCat first so the next user gets a clean session.
+      await SubscriptionService().logoutUser();
+      // Sign out from Firebase / Google.
       await _authService.signOut();
-
-      // Reset to free tier
-      await TierService.setTier(Tier.free);
+      // Reset the locally cached tier to free.
+      await TierService.resetToFree();
 
       if (!mounted) return;
 

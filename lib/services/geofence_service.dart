@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geofence_foreground_service/exports.dart';
 import 'package:geofence_foreground_service/geofence_foreground_service.dart';
@@ -12,6 +13,31 @@ import 'alarm_storage_service.dart';
 import 'alarm_sound_service.dart';
 import 'location_service.dart';
 import 'native_ios_geofence_service.dart';
+
+/// Called by the native BootReceiver after a device reboot to re-register
+/// all active geofences without the user needing to open the app.
+@pragma('vm:entry-point')
+void bootCallbackDispatcher() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await AlarmStorageService.init();
+    final activeAlarms = AlarmStorageService.getActiveAlarms();
+    if (activeAlarms.isNotEmpty) {
+      final service = GeofenceAlarmService();
+      await service.initialize();
+      for (final alarm in activeAlarms) {
+        await service.startGeofencing(alarm);
+        debugPrint('✅ Boot: re-registered geofence for ${alarm.name}');
+      }
+    }
+  } catch (e) {
+    debugPrint('❌ Boot restore error: $e');
+  }
+  // Signal the native service that Dart work is finished so it can stop.
+  try {
+    await const MethodChannel('com.example.wakemeup/boot').invokeMethod('complete');
+  } catch (_) {}
+}
 
 /// Top-level callback dispatcher for geofence events (must be top-level)
 @pragma('vm:entry-point')
@@ -270,6 +296,13 @@ class GeofenceAlarmService {
   bool _isInitialized = false;
   bool _isServiceRunning = false;
 
+  // Early-trigger buffers compensate for OS geofencing delays.
+  // Android delay averages 30–120s; at 60 km/h that is 500–2000m of overshoot.
+  // Registering a larger boundary makes the OS fire before the user arrives,
+  // giving time for the delay to elapse at approximately the right spot.
+  static const double _kAndroidEarlyBuffer = 750.0; // metres
+  static const double _kIOSEarlyBuffer = 1000.0; // metres
+
   /// Callback when an alarm is triggered and marked as completed
   /// UI can listen to this to refresh the alarm list
   Function(String alarmId)? onAlarmCompleted;
@@ -468,12 +501,18 @@ class GeofenceAlarmService {
           }
         };
 
-        final success = await _nativeIOSGeofenceService.startGeofencing(alarm);
+        // Register with an inflated radius to compensate for iOS Core Location
+        // delays (typically 1–5 min). The buffer shifts the OS boundary outward
+        // so the system fires the event before the user reaches the real stop.
+        final bufferedAlarm = alarm.copyWith(
+          radius: alarm.radius + _kIOSEarlyBuffer,
+        );
+        final success = await _nativeIOSGeofenceService.startGeofencing(bufferedAlarm);
         if (success) {
-          debugPrint('✅ Native iOS geofence started successfully');
+          debugPrint('✅ Native iOS geofence started (radius ${alarm.radius}m + ${_kIOSEarlyBuffer}m buffer = ${bufferedAlarm.radius}m)');
           _isServiceRunning = true;
 
-          // Also check if already inside the geofence
+          // Also check if already inside the actual alarm radius
           await _checkIfAlreadyInsideGeofence(alarm);
         }
         return success;
@@ -488,15 +527,13 @@ class GeofenceAlarmService {
         return false;
       }
 
-      // Enforce minimum radius for iOS (200m) and Android (100m)
-      double effectiveRadius = alarm.radius;
-      if (Platform.isIOS && effectiveRadius < 200) {
-        debugPrint('⚠️ iOS requires minimum 200m radius, adjusting from ${effectiveRadius}m');
-        effectiveRadius = 200;
-      } else if (Platform.isAndroid && effectiveRadius < 100) {
-        debugPrint('⚠️ Android requires minimum 100m radius, adjusting from ${effectiveRadius}m');
-        effectiveRadius = 100;
-      }
+      // Expand Android geofence radius to compensate for OS firing delays.
+      // The OS typically delivers the ENTER event 30–120s after the boundary
+      // crossing; at transit speeds that is 500–2000m of overshoot.
+      // Registering a larger boundary makes the event fire earlier so the
+      // delay elapses near the actual target radius.
+      final effectiveRadius = (alarm.radius + _kAndroidEarlyBuffer).clamp(100.0, double.infinity);
+      debugPrint('   - User radius: ${alarm.radius}m, registered: ${effectiveRadius}m (+${_kAndroidEarlyBuffer}m buffer)');
 
       debugPrint('═══════════════════════════════════════════════');
       debugPrint('📍 CREATING GEOFENCE ZONE');
@@ -573,9 +610,9 @@ class GeofenceAlarmService {
         debugPrint('📏 Your location: ${currentPosition.latitude}, ${currentPosition.longitude}');
         debugPrint('📏 Alarm location: ${alarm.latitude}, ${alarm.longitude}');
         debugPrint('📏 Distance to geofence center: ${distance.toStringAsFixed(0)}m');
-        debugPrint('📏 Geofence radius: ${effectiveRadius}m');
+        debugPrint('📏 Alarm radius: ${alarm.radius}m (registered: ${effectiveRadius}m with buffer)');
 
-        if (distance <= effectiveRadius) {
+        if (distance <= alarm.radius) {
           debugPrint('═══════════════════════════════════════════════');
           debugPrint('⚠️⚠️⚠️ YOU ARE ALREADY INSIDE THE GEOFENCE! ⚠️⚠️⚠️');
           debugPrint('🚨 TRIGGERING ALARM IMMEDIATELY!');
@@ -585,7 +622,7 @@ class GeofenceAlarmService {
           await _triggerAlarmNow(alarm);
         } else {
           debugPrint('✅ You are OUTSIDE the geofence (${distance.toStringAsFixed(0)}m away)');
-          debugPrint('   The alarm will trigger when you move within ${effectiveRadius}m');
+          debugPrint('   The alarm will trigger when you move within ${alarm.radius}m');
         }
       } catch (e) {
         debugPrint('⚠️ Could not check current position: $e');
@@ -603,6 +640,13 @@ class GeofenceAlarmService {
   /// Trigger alarm immediately (when already inside geofence or for testing)
   /// Note: Alarm stays ACTIVE until user manually toggles it off
   Future<void> _triggerAlarmNow(Alarm alarm) async {
+    // Guard: prevent double-fire when both the OS geofence and the foreground
+    // proximity trigger hit at the same time (or if the buffer caused an early
+    // OS event while the foreground GPS already fired).
+    if (alarm.isCompleted) {
+      debugPrint('⚠️ Alarm ${alarm.name} already triggered — skipping');
+      return;
+    }
     debugPrint('🚨 Triggering alarm NOW: ${alarm.name}');
 
     try {
@@ -826,6 +870,21 @@ class GeofenceAlarmService {
 
   /// Get active regions (stub for compatibility)
   Set<geofence.Zone> get activeRegions => {};
+
+  /// Trigger a specific alarm from foreground proximity detection.
+  /// Safe to call concurrently with OS geofence events — idempotent via
+  /// the isCompleted guard inside _triggerAlarmNow.
+  Future<void> triggerAlarm(String alarmId) async {
+    if (!AlarmStorageService.isInitialized) {
+      await AlarmStorageService.init();
+    }
+    final alarm = AlarmStorageService.getAlarm(alarmId);
+    if (alarm == null) {
+      debugPrint('⚠️ triggerAlarm: alarm $alarmId not found');
+      return;
+    }
+    await _triggerAlarmNow(alarm);
+  }
 
   /// Test the alarm trigger manually (for debugging)
   Future<void> testAlarmTrigger(String alarmId) async {

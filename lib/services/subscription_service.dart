@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import '../models/tier.dart';
@@ -42,7 +43,7 @@ class SubscriptionService {
       // Get initial subscription status
       await refreshSubscriptionStatus();
     } catch (e) {
-      print('Failed to initialize RevenueCat: $e');
+      debugPrint('Failed to initialize RevenueCat: $e');
       rethrow;
     }
   }
@@ -55,7 +56,7 @@ class SubscriptionService {
       _subscriptionController.add(_currentTier);
       return _currentTier;
     } catch (e) {
-      print('Failed to refresh subscription status: $e');
+      debugPrint('Failed to refresh subscription status: $e');
       return Tier.free;
     }
   }
@@ -65,7 +66,7 @@ class SubscriptionService {
     try {
       return await Purchases.getOfferings();
     } catch (e) {
-      print('Failed to get offerings: $e');
+      debugPrint('Failed to get offerings: $e');
       return null;
     }
   }
@@ -83,18 +84,18 @@ class SubscriptionService {
       final errorCode = PurchasesErrorHelper.getErrorCode(e);
 
       if (errorCode == PurchasesErrorCode.purchaseCancelledError) {
-        print('User cancelled purchase');
+        debugPrint('User cancelled purchase');
         return false;
       } else if (errorCode == PurchasesErrorCode.productAlreadyPurchasedError) {
-        print('Product already purchased');
+        debugPrint('Product already purchased');
         await refreshSubscriptionStatus();
         return true;
       } else {
-        print('Purchase failed: ${e.message}');
+        debugPrint('Purchase failed: ${e.message}');
         throw 'Purchase failed: ${e.message}';
       }
     } catch (e) {
-      print('Unexpected purchase error: $e');
+      debugPrint('Unexpected purchase error: $e');
       throw 'Purchase failed: $e';
     }
   }
@@ -107,7 +108,7 @@ class SubscriptionService {
       _subscriptionController.add(_currentTier);
       return true;
     } catch (e) {
-      print('Failed to restore purchases: $e');
+      debugPrint('Failed to restore purchases: $e');
       throw 'Failed to restore purchases: $e';
     }
   }
@@ -118,7 +119,7 @@ class SubscriptionService {
       final customerInfo = await Purchases.getCustomerInfo();
       return customerInfo.managementURL;
     } catch (e) {
-      print('Failed to get management URL: $e');
+      debugPrint('Failed to get management URL: $e');
       return null;
     }
   }
@@ -146,7 +147,7 @@ class SubscriptionService {
 
       return null;
     } catch (e) {
-      print('Failed to get expiration date: $e');
+      debugPrint('Failed to get expiration date: $e');
       return null;
     }
   }
@@ -178,6 +179,32 @@ class SubscriptionService {
   void _onCustomerInfoUpdate(CustomerInfo customerInfo) {
     _currentTier = _determineCurrentTier(customerInfo);
     _subscriptionController.add(_currentTier);
+  }
+
+  /// Switch RevenueCat to an authenticated user.
+  /// Call this immediately after a successful Firebase sign-in so that any
+  /// existing paid entitlements for that account are applied.
+  Future<void> loginUser(String userId) async {
+    try {
+      await Purchases.logIn(userId);
+      await refreshSubscriptionStatus();
+    } catch (e) {
+      // Non-fatal: tier will be refreshed on next TierService call.
+      debugPrint('⚠️ RevenueCat loginUser failed: $e');
+    }
+  }
+
+  /// Switch RevenueCat back to anonymous mode.
+  /// Call this immediately after Firebase sign-out so the next user starts
+  /// with a clean, unlinked RevenueCat session.
+  Future<void> logoutUser() async {
+    try {
+      await Purchases.logOut();
+      _currentTier = Tier.free;
+      _subscriptionController.add(_currentTier);
+    } catch (e) {
+      debugPrint('⚠️ RevenueCat logoutUser failed: $e');
+    }
   }
 
   /// Clean up resources

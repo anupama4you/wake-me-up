@@ -68,6 +68,24 @@
             android:name="com.f2fk.geofence_foreground_service.GeofenceBroadcastReceiver"
             android:enabled="true"
             android:exported="false" />
+
+        <!-- Boot receiver: re-registers geofences after device reboot -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Headless Flutter service that re-registers geofences on boot -->
+        <service
+            android:name=".GeofenceRestoreService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

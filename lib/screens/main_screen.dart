@@ -163,6 +163,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final alarms = AlarmStorageService.getAllAlarms();
       debugPrint('🔄 MainScreen: Loaded ${alarms.length} alarms from storage');
 
+      // Auto-reset recurring alarms that completed on a previous calendar day
+      await _resetStaleRecurringAlarms(alarms);
+
       setState(() {
         _alarms = alarms;
         _isLoading = false;
@@ -214,6 +217,47 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
     // Navigation allowed, switch tab
     setState(() => _selectedIndex = index);
+  }
+
+  /// Called by HomeScreen when foreground GPS confirms the user has entered
+  /// an alarm radius. Triggers the alarm immediately without waiting for the
+  /// OS geofence event, which can be 30–120s late on Android.
+  Future<void> _handleProximityTrigger(String alarmId) async {
+    debugPrint('🎯 MainScreen: foreground proximity trigger for $alarmId');
+    if (_geofenceService == null) {
+      _geofenceService = GeofenceAlarmService();
+      await _geofenceService!.initialize();
+      _geofenceService!.onAlarmCompleted = (id) {
+        if (mounted) _loadAlarms(syncGeofences: false);
+      };
+    }
+    await _geofenceService!.triggerAlarm(alarmId);
+    if (mounted) _loadAlarms(syncGeofences: false);
+  }
+
+  /// For each recurring alarm that completed on a previous calendar day and
+  /// today is one of its repeat days, reset isCompleted so it can fire again.
+  Future<void> _resetStaleRecurringAlarms(List<Alarm> alarms) async {
+    final now = DateTime.now();
+    for (final alarm in alarms) {
+      if (!alarm.isCompleted || !alarm.isRepeating || alarm.completedAt == null) {
+        continue;
+      }
+      final completed = alarm.completedAt!;
+      final sameDay = completed.year == now.year &&
+          completed.month == now.month &&
+          completed.day == now.day;
+      if (sameDay) continue;
+
+      // 0=Mon … 6=Sun  (DateTime.weekday: 1=Mon … 7=Sun)
+      final todayIndex = now.weekday - 1;
+      if (!alarm.repeatDays.contains(todayIndex)) continue;
+
+      alarm.isCompleted = false;
+      alarm.completedAt = null;
+      await AlarmStorageService.updateAlarm(alarm);
+      debugPrint('🔄 Auto-reset recurring alarm: ${alarm.name}');
+    }
   }
 
   Future<void> _toggleAlarm(String id, bool active) async {
@@ -690,6 +734,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         onDeleteAlarm: _deleteAlarm,
         onAddAlarm: _handleAddAlarm,
         onRefreshNeeded: _loadAlarms, // Reload alarms when edit completes
+        onProximityTrigger: _handleProximityTrigger,
       ),
       MapViewScreen(alarms: _alarms),
       SettingsScreen(
